@@ -73,7 +73,8 @@ class Task:
         return self.scheduled_time is not None
 
     def __str__(self):
-        return f"[{self.priority.upper()}] {self.title} ({self.duration_minutes} min)"
+        pet_part = f" | {self.pet_name}" if self.pet_name else ""
+        return f"[{self.priority.upper()}] {self.title} ({self.duration_minutes} min){pet_part}"
 
 
 class RecurringTask:
@@ -202,23 +203,23 @@ class DailyPlan:
 
     def summary(self):
         lines = [
-            f"Daily Plan — Generated {self.generated_at}",
+            f"Daily Plan - Generated {self.generated_at}",
             f"Budget: {self.available_minutes} min | Used: {self.total_duration_minutes} min | Remaining: {self.time_remaining()} min",
             "",
         ]
         if self.scheduled_tasks:
             lines.append("Scheduled:")
             for task in self.scheduled_tasks:
-                status = "✓" if task.is_completed else "○"
+                status = "[x]" if task.is_completed else "[ ]"
                 time_label = f"[{task.scheduled_time}]" if task.scheduled_time else "[--:--]"
                 lines.append(f"  {status} {time_label} {task}")
-                lines.append(f"         → {self.get_reason(task.task_id)}")
+                lines.append(f"           -> {self.get_reason(task.task_id)}")
         if self.skipped_tasks:
             lines.append("")
             lines.append("Skipped:")
             for task in self.skipped_tasks:
-                lines.append(f"  ✗ {task}")
-                lines.append(f"         → {self.get_reason(task.task_id)}")
+                lines.append(f"  [!] {task}")
+                lines.append(f"           -> {self.get_reason(task.task_id)}")
         return "\n".join(lines)
 
 

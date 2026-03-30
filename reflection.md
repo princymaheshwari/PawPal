@@ -6,11 +6,11 @@
 
 The system is designed around seven classes divided into three layers: data objects that hold state, a coordinator object that organizes them, and an engine that runs the scheduling logic.
 
-- **Pet** — holds all information about one animal (name, species, age, breed, special needs). It is a passive data object; the scheduler reads its special_needs to flag urgent tasks like medications.
+- **Pet** — holds all information about one animal (name, species, age, breed, special needs) and owns that pet's task lists (one-off tasks and recurring task templates). Task management methods (`add_task`, `remove_task`, `get_tasks_today`) live here so that each pet is fully self-contained.
 - **Task** — represents a single care action for today (walk, feeding, medication, grooming, appointment). It carries everything the scheduler needs: duration, priority, an optional fixed time, and a completion flag so the owner can check tasks off during the day.
 - **RecurringTask** — a reusable template for tasks that repeat daily or weekly (e.g., daily 7 AM feeding). It never gets checked off itself; instead it generates a fresh Task instance each day via `to_task()`, keeping the template clean.
 - **Preference** — encodes one scheduling constraint from the owner (e.g., "prefer walks in the morning", "medications at a fixed time"). Storing these as objects rather than strings lets the Scheduler query them by task type programmatically.
-- **Owner** — the central registry. It holds the owner's name, today's available time budget, and all their pets, tasks, recurring tasks, and preferences. The Streamlit UI talks primarily to this object.
+- **Owner** — manages a list of pets and the owner's preferences and available time. It no longer holds tasks directly; instead `all_tasks_today` iterates through all pets and collects their tasks in one place for the Scheduler.
 - **DailyPlan** — the output artifact produced by the Scheduler. It stores the ordered list of tasks that fit in today's time budget, the tasks that were skipped, and a reasoning string for each task so the UI can explain the plan to the owner.
 - **Scheduler** — the algorithmic engine. It takes an Owner, separates fixed-time tasks from flexible ones, sorts flexible tasks by priority, greedily fills the time budget, assigns suggested start times, and returns a DailyPlan. All business logic lives here so it can be tested independently of the UI.
 
@@ -40,9 +40,16 @@ classDiagram
         +float age
         +str breed
         +list special_needs
+        +list tasks
+        +list recurring_tasks
         +add_special_need(need str)
         +remove_special_need(need str)
         +has_special_needs() bool
+        +add_task(task Task)
+        +remove_task(task_id str)
+        +add_recurring_task(rt RecurringTask)
+        +remove_recurring_task(title str)
+        +get_tasks_today(day_of_week str) list
         +__str__() str
     }
 
@@ -91,16 +98,10 @@ classDiagram
         +str name
         +int available_minutes
         +list pets
-        +list tasks
-        +list recurring_tasks
         +list preferences
         +add_pet(pet Pet)
         +remove_pet(pet_name str)
         +get_pet(pet_name str) Pet
-        +add_task(task Task)
-        +remove_task(task_id str)
-        +add_recurring_task(rt RecurringTask)
-        +remove_recurring_task(title str)
         +add_preference(pref Preference)
         +remove_preference(task_type str)
         +set_available_time(minutes int)
@@ -137,9 +138,9 @@ classDiagram
     }
 
     Owner "1" --> "many" Pet : has
-    Owner "1" --> "many" Task : has
-    Owner "1" --> "many" RecurringTask : has
     Owner "1" --> "many" Preference : has
+    Pet "1" --> "many" Task : has
+    Pet "1" --> "many" RecurringTask : has
     RecurringTask --> Task : produces via to_task()
     Scheduler --> Owner : receives
     Scheduler --> DailyPlan : produces
@@ -155,6 +156,9 @@ Two bottlenecks were found when reviewing the class skeleton before implementing
 
 2. **`DailyPlan.generated_at` was initialized to `None`.**
    The original comment said "set in implementation," but there is no separate method that sets it — it is only ever written once, when the plan is first created. Deferring it to "later" means it could easily be forgotten and stay `None` permanently. The fix was to set it immediately in `DailyPlan.__init__` using `datetime.now().strftime("%Y-%m-%d %H:%M")`, so the timestamp is always present as soon as a plan is instantiated.
+
+3. **Tasks and recurring tasks moved from `Owner` to `Pet`.**
+   The original UML placed `tasks` and `recurring_tasks` as lists on `Owner`, with `Owner` responsible for adding, removing, and serving them. During implementation it became clear that a task always belongs to a specific pet — a walk is Mochi's walk, a medication is Bella's medication. Keeping tasks on Owner meant the pet association was only tracked through a `pet_name` string field, with no structural enforcement. Moving the lists to Pet makes each pet fully self-contained: `pet.add_task()`, `pet.remove_task()`, and `pet.get_tasks_today()` all live where the data lives. Owner's `all_tasks_today` now simply iterates through its pets and collects their tasks, which is a cleaner separation of responsibility.
 
 ---
 
