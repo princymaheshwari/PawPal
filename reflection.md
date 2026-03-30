@@ -23,6 +23,122 @@ The core actions a user should be able to perform are:
 
 6. **Add a recurring appointment** — The user can schedule standing appointments (e.g., weekly vet checkup, daily 7 AM feeding) that automatically appear in the plan every day or on a set schedule, so the user does not have to re-enter them manually.
 
+**UML Class Diagram**
+
+```mermaid
+classDiagram
+    class Pet {
+        +str name
+        +str species
+        +float age
+        +str breed
+        +list special_needs
+        +add_special_need(need str)
+        +remove_special_need(need str)
+        +has_special_needs() bool
+        +__str__() str
+    }
+
+    class Task {
+        +str task_id
+        +str title
+        +str task_type
+        +int duration_minutes
+        +str priority
+        +str scheduled_time
+        +bool is_completed
+        +str pet_name
+        +str notes
+        +mark_complete()
+        +mark_incomplete()
+        +priority_score() int
+        +is_fixed_time() bool
+        +__str__() str
+    }
+
+    class RecurringTask {
+        +str title
+        +str task_type
+        +int duration_minutes
+        +str priority
+        +str scheduled_time
+        +str frequency
+        +list days_of_week
+        +str pet_name
+        +str notes
+        +is_active_today(day_of_week str) bool
+        +to_task() Task
+        +__str__() str
+    }
+
+    class Preference {
+        +str category
+        +str task_type
+        +str value
+        +str description
+        +matches_task_type(task_type str) bool
+        +__str__() str
+    }
+
+    class Owner {
+        +str name
+        +int available_minutes
+        +list pets
+        +list tasks
+        +list recurring_tasks
+        +list preferences
+        +add_pet(pet Pet)
+        +remove_pet(pet_name str)
+        +get_pet(pet_name str) Pet
+        +add_task(task Task)
+        +remove_task(task_id str)
+        +add_recurring_task(rt RecurringTask)
+        +remove_recurring_task(title str)
+        +add_preference(pref Preference)
+        +remove_preference(task_type str)
+        +set_available_time(minutes int)
+        +get_preferences_for(task_type str) list
+        +all_tasks_today(day_of_week str) list
+    }
+
+    class DailyPlan {
+        +list scheduled_tasks
+        +list skipped_tasks
+        +int total_duration_minutes
+        +int available_minutes
+        +dict reasoning
+        +str generated_at
+        +add_scheduled_task(task Task, reason str)
+        +add_skipped_task(task Task, reason str)
+        +get_reason(task_id str) str
+        +time_remaining() int
+        +completion_count() int
+        +all_done() bool
+        +summary() str
+    }
+
+    class Scheduler {
+        +Owner owner
+        +generate_plan(day_of_week str) DailyPlan
+        -_collect_tasks(day_of_week str) list
+        -_separate_fixed(tasks list) tuple
+        -_sort_flexible(tasks list) list
+        -_apply_preferences(tasks list) list
+        -_fit_tasks(fixed list, flexible list, budget int) tuple
+        -_build_reasoning(task Task, included bool) str
+        -_assign_times(tasks list) list
+    }
+
+    Owner "1" --> "many" Pet : has
+    Owner "1" --> "many" Task : has
+    Owner "1" --> "many" RecurringTask : has
+    Owner "1" --> "many" Preference : has
+    RecurringTask --> Task : produces via to_task()
+    Scheduler --> Owner : receives
+    Scheduler --> DailyPlan : produces
+    DailyPlan "1" --> "many" Task : contains
+```
+
 **b. Design changes**
 
 - Did your design change during implementation?
