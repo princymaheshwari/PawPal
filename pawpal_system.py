@@ -1,3 +1,7 @@
+import uuid
+from datetime import datetime
+
+
 class Pet:
     def __init__(self, name, species, age, breed="", special_needs=None):
         self.name = name
@@ -22,7 +26,7 @@ class Pet:
 class Task:
     def __init__(self, title, task_type, duration_minutes, priority,
                  scheduled_time=None, pet_name=None, notes=""):
-        self.task_id = None  # auto-generated in implementation
+        self.task_id = str(uuid.uuid4())
         self.title = title
         self.task_type = task_type
         self.duration_minutes = duration_minutes
@@ -139,7 +143,7 @@ class DailyPlan:
         self.total_duration_minutes = 0
         self.available_minutes = available_minutes
         self.reasoning = {}
-        self.generated_at = None  # set in implementation
+        self.generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     def add_scheduled_task(self, task, reason):
         pass
