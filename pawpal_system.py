@@ -1,5 +1,28 @@
 import uuid
+import json
+import pathlib
 from datetime import datetime, date, timedelta
+
+# Visual indicators shared by the Streamlit UI and the CLI (main.py)
+PRIORITY_EMOJI = {
+    "high":   "🔴 High",
+    "medium": "🟡 Medium",
+    "low":    "🟢 Low",
+}
+
+TASK_TYPE_EMOJI = {
+    "medication":  "💊 Medication",
+    "feeding":     "🍽️  Feeding",
+    "walk":        "🚶 Walk",
+    "grooming":    "✂️  Grooming",
+    "appointment": "🏥 Appointment",
+    "other":       "📋 Other",
+}
+
+STATUS_EMOJI = {
+    True:  "✅ Done",
+    False: "⏳ Pending",
+}
 
 # Algorithm B: keyword map for urgency scoring
 # If a pet's special_needs contain any of these keywords for a matching task type,
@@ -102,6 +125,34 @@ class Pet:
                 today_tasks.append(rt.to_task())
         return today_tasks
 
+    def to_dict(self):
+        """Serialize this pet and all its tasks to a plain dictionary for JSON storage."""
+        return {
+            "name": self.name,
+            "species": self.species,
+            "age": self.age,
+            "breed": self.breed,
+            "special_needs": self.special_needs,
+            "tasks": [t.to_dict() for t in self.tasks],
+            "recurring_tasks": [rt.to_dict() for rt in self.recurring_tasks],
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        """Reconstruct a Pet (with tasks and recurring tasks) from a dictionary."""
+        pet = cls(
+            name=data["name"],
+            species=data["species"],
+            age=data["age"],
+            breed=data.get("breed", ""),
+            special_needs=data.get("special_needs", []),
+        )
+        for t_data in data.get("tasks", []):
+            pet.tasks.append(Task.from_dict(t_data))
+        for rt_data in data.get("recurring_tasks", []):
+            pet.recurring_tasks.append(RecurringTask.from_dict(rt_data))
+        return pet
+
     def __str__(self):
         """Return a short human-readable description of this pet."""
         return f"{self.name} ({self.species}, {self.age} years)"
@@ -167,6 +218,41 @@ class Task:
     def is_fixed_time(self):
         """Return True if this task has a specific scheduled time set."""
         return self.scheduled_time is not None
+
+    def to_dict(self):
+        """Serialize this task to a plain dictionary for JSON storage."""
+        return {
+            "task_id": self.task_id,
+            "title": self.title,
+            "task_type": self.task_type,
+            "duration_minutes": self.duration_minutes,
+            "priority": self.priority,
+            "scheduled_time": self.scheduled_time,
+            "is_completed": self.is_completed,
+            "pet_name": self.pet_name,
+            "notes": self.notes,
+            "recurrence": self.recurrence,
+            "next_due_date": self.next_due_date.isoformat() if self.next_due_date else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        """Reconstruct a Task from a dictionary, preserving its original task_id and state."""
+        task = cls(
+            title=data["title"],
+            task_type=data["task_type"],
+            duration_minutes=data["duration_minutes"],
+            priority=data["priority"],
+            scheduled_time=data.get("scheduled_time"),
+            pet_name=data.get("pet_name"),
+            notes=data.get("notes", ""),
+            recurrence=data.get("recurrence"),
+        )
+        task.task_id = data["task_id"]
+        task.is_completed = data.get("is_completed", False)
+        ndd = data.get("next_due_date")
+        task.next_due_date = date.fromisoformat(ndd) if ndd else None
+        return task
 
     def __str__(self):
         """Return a formatted summary string including priority, title, duration, and pet."""
@@ -239,6 +325,39 @@ class RecurringTask:
             recurrence=recurrence,
         )
 
+    def to_dict(self):
+        """Serialize this recurring task template to a plain dictionary for JSON storage."""
+        return {
+            "title": self.title,
+            "task_type": self.task_type,
+            "duration_minutes": self.duration_minutes,
+            "priority": self.priority,
+            "scheduled_time": self.scheduled_time,
+            "frequency": self.frequency,
+            "days_of_week": self.days_of_week,
+            "pet_name": self.pet_name,
+            "notes": self.notes,
+            "interval_days": self.interval_days,
+            "start_date": self.start_date,
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        """Reconstruct a RecurringTask template from a dictionary."""
+        return cls(
+            title=data["title"],
+            task_type=data["task_type"],
+            duration_minutes=data["duration_minutes"],
+            priority=data["priority"],
+            frequency=data.get("frequency", "daily"),
+            scheduled_time=data.get("scheduled_time"),
+            days_of_week=data.get("days_of_week"),
+            pet_name=data.get("pet_name"),
+            notes=data.get("notes", ""),
+            interval_days=data.get("interval_days"),
+            start_date=data.get("start_date"),
+        )
+
     def __str__(self):
         """Return a short description showing the frequency and title of this template."""
         time_part = f" at {self.scheduled_time}" if self.scheduled_time else ""
@@ -256,6 +375,25 @@ class Preference:
     def matches_task_type(self, task_type):
         """Return True if this preference applies to the given task type."""
         return self.task_type == task_type
+
+    def to_dict(self):
+        """Serialize this preference to a plain dictionary for JSON storage."""
+        return {
+            "category": self.category,
+            "task_type": self.task_type,
+            "value": self.value,
+            "description": self.description,
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        """Reconstruct a Preference from a dictionary."""
+        return cls(
+            category=data["category"],
+            task_type=data["task_type"],
+            value=data["value"],
+            description=data.get("description", ""),
+        )
 
     def __str__(self):
         """Return the human-readable description of this preference."""
@@ -303,6 +441,44 @@ class Owner:
     def get_preferences_for(self, task_type):
         """Return all preferences that match the given task type."""
         return [p for p in self.preferences if p.matches_task_type(task_type)]
+
+    def to_dict(self):
+        """Serialize the owner, all pets, tasks, and preferences to a plain dictionary."""
+        return {
+            "name": self.name,
+            "available_minutes": self.available_minutes,
+            "day_start": self.day_start,
+            "buffer_minutes": self.buffer_minutes,
+            "pets": [p.to_dict() for p in self.pets],
+            "preferences": [p.to_dict() for p in self.preferences],
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        """Reconstruct a fully populated Owner from a dictionary."""
+        owner = cls(
+            name=data["name"],
+            available_minutes=data.get("available_minutes", 120),
+            day_start=data.get("day_start", "08:00"),
+            buffer_minutes=data.get("buffer_minutes", 5),
+        )
+        for pet_data in data.get("pets", []):
+            owner.pets.append(Pet.from_dict(pet_data))
+        for pref_data in data.get("preferences", []):
+            owner.preferences.append(Preference.from_dict(pref_data))
+        return owner
+
+    def save_to_json(self, filepath="data.json"):
+        """Write the full owner state to a JSON file so it survives app restarts."""
+        path = pathlib.Path(filepath)
+        path.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
+
+    @staticmethod
+    def load_from_json(filepath="data.json"):
+        """Load and return an Owner from a JSON file created by save_to_json."""
+        path = pathlib.Path(filepath)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return Owner.from_dict(data)
 
     # Algorithm E: today_date threaded through to pets
     def all_tasks_today(self, day_of_week, today_date=None):

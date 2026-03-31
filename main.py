@@ -1,20 +1,70 @@
-from datetime import datetime, date
-from pawpal_system import Owner, Pet, Task, RecurringTask, Preference, Scheduler, TaskFilter
+import sys
+sys.stdout.reconfigure(encoding="utf-8")
 
-# --- Setup ---
+from datetime import datetime, date
+from tabulate import tabulate
+from pawpal_system import (Owner, Pet, Task, RecurringTask, Preference,
+                           Scheduler, TaskFilter)
+
+# Plain-text labels for the CLI — emoji are double-width in terminals and
+# break tabulate's column alignment, so we use bracketed text here instead.
+CLI_PRIORITY = {"high": "[HIGH]", "medium": "[MED]", "low": "[LOW]"}
+CLI_TYPE     = {
+    "medication":  "Medication",
+    "feeding":     "Feeding",
+    "walk":        "Walk",
+    "grooming":    "Grooming",
+    "appointment": "Appointment",
+    "other":       "Other",
+}
+CLI_STATUS   = {True: "Done", False: "Pending"}
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+def task_rows(tasks, scheduler=None):
+    """Convert a list of Task objects to tabulate-ready rows."""
+    ordered = scheduler.sort_by_time(tasks) if scheduler else tasks
+    rows = []
+    for t in ordered:
+        rows.append([
+            t.scheduled_time or "(flexible)",
+            t.title,
+            t.pet_name or "-",
+            CLI_TYPE.get(t.task_type, t.task_type),
+            CLI_PRIORITY.get(t.priority, t.priority),
+            f"{t.duration_minutes} min",
+            CLI_STATUS.get(t.is_completed, "-"),
+        ])
+    return rows
+
+TASK_HEADERS = ["Time", "Task", "Pet", "Type", "Priority", "Duration", "Status"]
+
+def print_table(title, rows, headers=TASK_HEADERS):
+    print(f"\n{'━' * 70}")
+    print(f"  {title}")
+    print('━' * 70)
+    if rows:
+        print(tabulate(rows, headers=headers, tablefmt="rounded_outline"))
+    else:
+        print("  (no tasks)")
+
+# ---------------------------------------------------------------------------
+# Setup
+# ---------------------------------------------------------------------------
 owner = Owner(name="Jordan", available_minutes=120)
 
 mochi = Pet(name="Mochi", species="dog", age=3, breed="Shiba Inu")
 bella = Pet(name="Bella", species="cat", age=5, breed="Tabby")
 
-# --- Tasks added INTENTIONALLY OUT OF CHRONOLOGICAL ORDER ---
-# Mochi's tasks
+# Tasks added INTENTIONALLY OUT OF CHRONOLOGICAL ORDER
 mochi.add_task(Task(
     title="Evening Walk",
     task_type="walk",
     duration_minutes=30,
     priority="medium",
-    scheduled_time="18:00",      # <-- late in the day
+    scheduled_time="18:00",
     pet_name="Mochi",
 ))
 mochi.add_task(Task(
@@ -22,7 +72,7 @@ mochi.add_task(Task(
     task_type="medication",
     duration_minutes=5,
     priority="high",
-    scheduled_time="08:00",      # <-- early
+    scheduled_time="08:00",
     pet_name="Mochi",
     notes="Apply to back of neck",
 ))
@@ -32,11 +82,10 @@ mochi.add_recurring_task(RecurringTask(
     duration_minutes=10,
     priority="high",
     frequency="daily",
-    scheduled_time="07:30",      # <-- earliest of all
+    scheduled_time="07:30",
     pet_name="Mochi",
 ))
 
-# Bella's tasks
 bella.add_task(Task(
     title="Insulin Injection",
     task_type="medication",
@@ -51,7 +100,7 @@ bella.add_task(Task(
     task_type="grooming",
     duration_minutes=20,
     priority="medium",
-    scheduled_time="14:30",      # <-- afternoon
+    scheduled_time="14:30",
     pet_name="Bella",
 ))
 bella.add_task(Task(
@@ -59,13 +108,11 @@ bella.add_task(Task(
     task_type="other",
     duration_minutes=15,
     priority="low",
-    pet_name="Bella",            # no fixed time -- flexible
+    pet_name="Bella",
 ))
 
-# Mark one task complete via the OLD direct call (no recurrence on this task)
-mochi.tasks[1].mark_complete()  # Flea Medication -- no recurrence, just marks done
+mochi.tasks[1].mark_complete()   # Flea Medication — mark done for demo
 
-# --- Preferences ---
 owner.add_preference(Preference(
     category="time_of_day",
     task_type="walk",
@@ -76,123 +123,114 @@ owner.add_preference(Preference(
 owner.add_pet(mochi)
 owner.add_pet(bella)
 
-# --- Collect all tasks for today ---
-today = datetime.now().strftime("%A")
+today     = datetime.now().strftime("%A")
+today_date = date.today()
 scheduler = Scheduler(owner)
 all_tasks = owner.all_tasks_today(today)
 
 # -----------------------------------------------------------------------
-# DEMO 1: Sort by time using Scheduler.sort_by_time()
-# "HH:MM" strings compare correctly as plain strings because digits are
-# fixed-width zero-padded. The lambda key returns "99:99" for None so
-# timeless tasks always land at the end.
+# DEMO 1 — All tasks sorted by time
 # -----------------------------------------------------------------------
-print("=" * 55)
-print("DEMO 1: All tasks sorted by scheduled time")
-print("=" * 55)
-sorted_tasks = scheduler.sort_by_time(all_tasks)
-for t in sorted_tasks:
-    time_label = t.scheduled_time if t.scheduled_time else "(flexible)"
-    print(f"  {time_label}  {t}")
+print_table("DEMO 1 — All tasks sorted by scheduled time",
+            task_rows(all_tasks, scheduler))
 
 # -----------------------------------------------------------------------
-# DEMO 2: Filter by pet name
+# DEMO 2 — Filter by pet
 # -----------------------------------------------------------------------
-print()
-print("=" * 55)
-print("DEMO 2: Filter -- Mochi's tasks only")
-print("=" * 55)
-mochi_tasks = TaskFilter.by_pet(all_tasks, "Mochi")
-for t in scheduler.sort_by_time(mochi_tasks):
-    print(f"  {t}")
+print_table("DEMO 2 — Mochi's tasks only",
+            task_rows(TaskFilter.by_pet(all_tasks, "Mochi"), scheduler))
 
-print()
-print("=" * 55)
-print("DEMO 2: Filter -- Bella's tasks only")
-print("=" * 55)
-bella_tasks = TaskFilter.by_pet(all_tasks, "Bella")
-for t in scheduler.sort_by_time(bella_tasks):
-    print(f"  {t}")
+print_table("DEMO 2 — Bella's tasks only",
+            task_rows(TaskFilter.by_pet(all_tasks, "Bella"), scheduler))
 
 # -----------------------------------------------------------------------
-# DEMO 3: Filter by completion status
+# DEMO 3 — Filter by completion status
 # -----------------------------------------------------------------------
-print()
-print("=" * 55)
-print("DEMO 3: Filter -- Completed tasks")
-print("=" * 55)
-done = TaskFilter.by_status(all_tasks, completed=True)
-print(f"  {len(done)} completed task(s):")
-for t in done:
-    print(f"  [x] {t}")
+print_table("DEMO 3 — Completed tasks",
+            task_rows(TaskFilter.by_status(all_tasks, completed=True), scheduler))
 
-print()
-print("=" * 55)
-print("DEMO 3: Filter -- Pending tasks")
-print("=" * 55)
-pending = TaskFilter.by_status(all_tasks, completed=False)
-print(f"  {len(pending)} pending task(s):")
-for t in scheduler.sort_by_time(pending):
-    print(f"  [ ] {t}")
+print_table("DEMO 3 — Pending tasks",
+            task_rows(TaskFilter.by_status(all_tasks, completed=False), scheduler))
 
 # -----------------------------------------------------------------------
-# DEMO 4: Filter by task type
+# DEMO 4 — Filter by task type
 # -----------------------------------------------------------------------
-print()
-print("=" * 55)
-print("DEMO 4: Filter -- Medication tasks only")
-print("=" * 55)
-meds = TaskFilter.by_type(all_tasks, "medication")
-for t in scheduler.sort_by_time(meds):
-    print(f"  {t}")
+print_table("DEMO 4 — Medication tasks only",
+            task_rows(TaskFilter.by_type(all_tasks, "medication"), scheduler))
 
-print()
-print("=" * 55)
-print("DEMO 4: Filter -- Walk tasks only")
-print("=" * 55)
-walks = TaskFilter.by_type(all_tasks, "walk")
-for t in scheduler.sort_by_time(walks):
-    print(f"  {t}")
+print_table("DEMO 4 — Walk tasks only",
+            task_rows(TaskFilter.by_type(all_tasks, "walk"), scheduler))
 
 # -----------------------------------------------------------------------
-# DEMO 5: Filter by priority
+# DEMO 5 — Filter by priority
 # -----------------------------------------------------------------------
-print()
-print("=" * 55)
-print("DEMO 5: Filter -- High priority tasks only")
-print("=" * 55)
-high_priority = TaskFilter.by_priority(all_tasks, "high")
-for t in scheduler.sort_by_time(high_priority):
-    print(f"  {t}")
+print_table("DEMO 5 — High priority tasks only",
+            task_rows(TaskFilter.by_priority(all_tasks, "high"), scheduler))
 
-print()
-print("=" * 55)
-print("DEMO 5: Filter -- Low priority tasks only")
-print("=" * 55)
-low_priority = TaskFilter.by_priority(all_tasks, "low")
-for t in scheduler.sort_by_time(low_priority):
-    print(f"  {t}")
+print_table("DEMO 5 — Low priority tasks only",
+            task_rows(TaskFilter.by_priority(all_tasks, "low"), scheduler))
 
 # -----------------------------------------------------------------------
-# DEMO 6: Full generated schedule (as before)
+# DEMO 6 — Full generated schedule
 # -----------------------------------------------------------------------
-print()
-print("=" * 55)
-print("DEMO 6: Generated daily schedule")
-print("=" * 55)
-plan = scheduler.generate_plan(today)
-print(plan.summary())
+plan = scheduler.generate_plan(today, today_date)
+
+print(f"\n{'━' * 70}")
+print("  DEMO 6 — Generated daily schedule")
+print('━' * 70)
+print(f"  Budget: {plan.available_minutes} min  |  "
+      f"Scheduled: {plan.total_duration_minutes} min  |  "
+      f"Remaining: {plan.time_remaining()} min")
+
+if plan.overload_warning:
+    print(f"\n  [!] OVERLOAD: {plan.overload_warning}")
+
+if plan.conflicts:
+    print(f"\n  [!] {len(plan.conflicts)} conflict(s) detected:")
+    for msg in plan.conflicts:
+        print(f"      - {msg}")
+
+if plan.scheduled_tasks:
+    sched_rows = []
+    for t in plan.scheduled_tasks:
+        reason = plan.get_reason(t.task_id)
+        urgent = "[!] " if "special need" in reason.lower() else ""
+        sched_rows.append([
+            t.scheduled_time or "--:--",
+            urgent + t.title,
+            t.pet_name or "-",
+            CLI_TYPE.get(t.task_type, t.task_type),
+            CLI_PRIORITY.get(t.priority, t.priority),
+            f"{t.duration_minutes} min",
+            reason,
+        ])
+    print()
+    print(tabulate(sched_rows,
+                   headers=["Time", "Task", "Pet", "Type", "Priority", "Duration", "Reason"],
+                   tablefmt="rounded_outline"))
+
+if plan.skipped_tasks:
+    skipped_rows = []
+    for t in plan.skipped_tasks:
+        skipped_rows.append([
+            t.title,
+            t.pet_name or "-",
+            CLI_PRIORITY.get(t.priority, t.priority),
+            f"{t.duration_minutes} min",
+            plan.get_reason(t.task_id),
+        ])
+    print()
+    print("  Skipped tasks:")
+    print(tabulate(skipped_rows,
+                   headers=["Task", "Pet", "Priority", "Duration", "Reason"],
+                   tablefmt="rounded_outline"))
 
 # -----------------------------------------------------------------------
-# DEMO 7: Recurring task auto-scheduling via Pet.complete_task()
-# Create a daily task directly on Bella with recurrence="daily"
-# When complete_task() is called, it uses timedelta(days=1) to set
-# next_due_date and immediately adds the next instance to bella.tasks
+# DEMO 7 — Recurring task auto-scheduling
 # -----------------------------------------------------------------------
-print()
-print("=" * 55)
-print("DEMO 7: Recurring task auto-scheduling")
-print("=" * 55)
+print(f"\n{'━' * 70}")
+print("  DEMO 7 — Recurring task auto-scheduling (timedelta)")
+print('━' * 70)
 
 daily_feed = Task(
     title="Lunch Feeding",
@@ -201,45 +239,37 @@ daily_feed = Task(
     priority="high",
     scheduled_time="12:00",
     pet_name="Bella",
-    recurrence="daily",   # <-- this task repeats every day
+    recurrence="daily",
 )
 bella.add_task(daily_feed)
 
-today_date = date.today()
-print(f"  Before completion -- Bella has {len(bella.tasks)} task(s)")
-print(f"  Completing '{daily_feed.title}' on {today_date} ...")
-
+print(f"  Before: Bella has {len(bella.tasks)} task(s)")
 bella.complete_task(daily_feed.task_id, today_date)
+print(f"  After:  Bella has {len(bella.tasks)} task(s)  (next occurrence auto-added)")
 
-print(f"  After completion  -- Bella has {len(bella.tasks)} task(s)")
-print()
+spawn_rows = []
 for t in bella.tasks:
-    status  = "[x]" if t.is_completed else "[ ]"
-    due     = f" | next due: {t.next_due_date}" if t.next_due_date else ""
-    recurs  = f" | recurs: {t.recurrence}" if t.recurrence else ""
-    print(f"  {status} {t}{recurs}{due}")
-
-# Verify timedelta arithmetic: next_due_date should be today + 1 day
-expected = today_date + __import__("datetime").timedelta(days=1)
-assert bella.tasks[-1].next_due_date == expected or bella.tasks[-1].is_completed is False
+    spawn_rows.append([
+        t.title,
+        CLI_STATUS.get(t.is_completed, "-"),
+        str(t.recurrence or "-"),
+        str(t.next_due_date or "-"),
+    ])
 print()
-print(f"  Next occurrence scheduled for: {bella.tasks[-1].next_due_date}")
-print(f"  (today={today_date} + 1 day = {expected})")
+print(tabulate(spawn_rows,
+               headers=["Task", "Status", "Recurrence", "Next Due"],
+               tablefmt="rounded_outline"))
 
 # -----------------------------------------------------------------------
-# DEMO 8: Conflict detection
-# Add two tasks that intentionally overlap in time and verify the
-# Scheduler catches it and prints a warning instead of crashing.
+# DEMO 8 — Conflict detection
 # -----------------------------------------------------------------------
-print()
-print("=" * 55)
-print("DEMO 8: Conflict detection")
-print("=" * 55)
+print(f"\n{'━' * 70}")
+print("  DEMO 8 — Conflict detection (overlapping fixed-time tasks)")
+print('━' * 70)
 
 conflict_owner = Owner(name="Jordan", available_minutes=120)
-conflict_pet = Pet(name="Mochi", species="dog", age=3)
+conflict_pet   = Pet(name="Mochi", species="dog", age=3)
 
-# Task A: 09:00, runs 30 min -> occupies 09:00-09:30
 conflict_pet.add_task(Task(
     title="Morning Walk",
     task_type="walk",
@@ -248,36 +278,30 @@ conflict_pet.add_task(Task(
     scheduled_time="09:00",
     pet_name="Mochi",
 ))
-# Task B: 09:15, runs 20 min -> occupies 09:15-09:35  (overlaps Task A)
 conflict_pet.add_task(Task(
     title="Grooming Session",
     task_type="grooming",
     duration_minutes=20,
     priority="medium",
-    scheduled_time="09:15",
+    scheduled_time="09:15",     # overlaps 09:00–09:30
     pet_name="Mochi",
 ))
-# Task C: 10:00, runs 10 min -> no overlap, should be clean
 conflict_pet.add_task(Task(
     title="Feeding",
     task_type="feeding",
     duration_minutes=10,
     priority="high",
-    scheduled_time="10:00",
+    scheduled_time="10:00",     # clean, no overlap
     pet_name="Mochi",
 ))
 
 conflict_owner.add_pet(conflict_pet)
-conflict_scheduler = Scheduler(conflict_owner)
-conflict_plan = conflict_scheduler.generate_plan(today)
+conflict_plan = Scheduler(conflict_owner).generate_plan(today)
 
 if conflict_plan.conflicts:
-    print(f"  {len(conflict_plan.conflicts)} conflict(s) found:")
+    print(f"\n  [!] {len(conflict_plan.conflicts)} conflict(s) found:")
     for msg in conflict_plan.conflicts:
-        print(f"  [!] {msg}")
+        print(f"      - {msg}")
 else:
     print("  No conflicts detected.")
-
 print()
-print("Full plan output (conflicts appear at top):")
-print(conflict_plan.summary())

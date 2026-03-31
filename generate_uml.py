@@ -30,6 +30,29 @@ classDiagram
         other 5
     }
 
+    class PRIORITY_EMOJI {
+        <<constant>>
+        high str
+        medium str
+        low str
+    }
+
+    class TASK_TYPE_EMOJI {
+        <<constant>>
+        medication str
+        feeding str
+        walk str
+        grooming str
+        appointment str
+        other str
+    }
+
+    class STATUS_EMOJI {
+        <<constant>>
+        True str
+        False str
+    }
+
     class Pet {
         +str name
         +str species
@@ -47,6 +70,8 @@ classDiagram
         +remove_recurring_task(title str)
         +complete_task(task_id str, today_date date) Task
         +get_tasks_today(day_of_week str, today_date date) list
+        +to_dict() dict
+        +from_dict(data dict)$ Pet
         +__str__() str
     }
 
@@ -67,6 +92,8 @@ classDiagram
         +priority_score() int
         +urgency_score(pet Pet) int
         +is_fixed_time() bool
+        +to_dict() dict
+        +from_dict(data dict)$ Task
         +__str__() str
     }
 
@@ -84,6 +111,8 @@ classDiagram
         +str start_date
         +is_active_today(day_of_week str, today_date date) bool
         +to_task() Task
+        +to_dict() dict
+        +from_dict(data dict)$ RecurringTask
         +__str__() str
     }
 
@@ -93,6 +122,8 @@ classDiagram
         +str value
         +str description
         +matches_task_type(task_type str) bool
+        +to_dict() dict
+        +from_dict(data dict)$ Preference
         +__str__() str
     }
 
@@ -111,6 +142,10 @@ classDiagram
         +set_available_time(minutes int)
         +get_preferences_for(task_type str) list
         +all_tasks_today(day_of_week str, today_date date) list
+        +to_dict() dict
+        +from_dict(data dict)$ Owner
+        +save_to_json(filepath str)
+        +load_from_json(filepath str)$ Owner
     }
 
     class DailyPlan {

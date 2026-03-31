@@ -52,6 +52,61 @@
 
 ---
 
+## Challenges
+
+Three engineering challenges were completed to extend PawPal+ beyond the baseline implementation.
+
+---
+
+### Challenge 2 — Data Persistence
+
+**What it does:**
+Before this challenge, every app restart wiped all pets, tasks, and preferences — they only lived in memory. Now the app saves its entire state to a `data.json` file in the project folder. The next time you open the app, it silently reads that file and restores everything exactly as you left it — same pets, same tasks, same settings — with no re-entry required.
+
+**How it was implemented:**
+Rather than using an external library, a custom serialization chain was built directly into the data classes using Python's built-in `json` module:
+
+- Every class (`Task`, `RecurringTask`, `Preference`, `Pet`) received a `to_dict()` method that converts the object and all its nested objects into a plain Python dictionary.
+- Each class also received a `from_dict(data)` class method that reconstructs a fully populated object from that dictionary — preserving `task_id`, `is_completed`, `next_due_date`, and every other field exactly.
+- `Owner` received two additional methods: `save_to_json(filepath)` writes the full ownership tree to disk in one call, and `load_from_json(filepath)` reads it back and returns a ready-to-use `Owner` object.
+- In `app.py`, a `save_data()` helper is called automatically after every form submission that changes state (adding a pet, adding a task, adding a preference, changing owner settings). On startup, if `data.json` exists, it is loaded immediately before the app renders — so the restored state appears as if it was never lost.
+
+The serialization chain looks like this:
+```
+Owner → [Pets → [Tasks, RecurringTasks], Preferences]  →  dict  →  data.json
+data.json  →  dict  →  Owner.from_dict()  →  full object graph restored
+```
+
+---
+
+### Challenge 3 — Priority Visual Indicators
+
+**What it does:**
+The scheduler already sorted tasks by priority from the very beginning — high tasks always appeared before medium, medium before low. But every row in the schedule table looked identical at a glance, with no visual signal about urgency. This challenge made priority and task type instantly readable by adding color-coded indicators and type icons to every table in the UI.
+
+**How it was implemented:**
+Three shared dictionaries were added as module-level constants in `pawpal_system.py`:
+
+- `PRIORITY_EMOJI` — maps `"high"` → `🔴 High`, `"medium"` → `🟡 Medium`, `"low"` → `🟢 Low`
+- `TASK_TYPE_EMOJI` — maps each task type to a matching icon: `💊 Medication`, `🍽️ Feeding`, `🚶 Walk`, `✂️ Grooming`, `🏥 Appointment`, `📋 Other`
+- `STATUS_EMOJI` — maps completion state to `✅ Done` or `⏳ Pending`
+
+These constants are imported into `app.py` and used in all three `st.table()` calls — the scheduled tasks table, the skipped tasks table, and the filter results table. Urgent tasks also receive an extra `⚡` prefix in the Task column. The constants live in `pawpal_system.py` rather than `app.py` so both the UI and any future output format can use the same mapping without duplication.
+
+---
+
+### Challenge 4 — Professional CLI Output with tabulate
+
+**What it does:**
+The original `main.py` printed tasks using plain `print()` loops — raw object strings with no alignment, no borders, and no visual hierarchy. This challenge replaced every print loop with a properly formatted bordered table using the `tabulate` library, making the CLI output as readable as a database query result.
+
+**How it was implemented:**
+`tabulate` was added to `requirements.txt` and installed. A shared `task_rows()` helper function was written so that any list of tasks can be converted to table rows in a single call, without repeating the same column-building logic across every demo. All 8 demos now call this helper and render their output using `tablefmt="rounded_outline"`, which produces the `╭─┬─╮` box-drawing border style.
+
+One important technical detail: emoji characters are "wide" Unicode — they occupy 2 character columns in a terminal, but `tabulate` counts them as 1 when calculating padding. Using the Streamlit emoji constants (`🔴 High`, `💊 Medication`) in the CLI caused every column after the emoji to shift left and look broken. The fix was a separate set of CLI-only plain text labels (`[HIGH]`, `[MED]`, `[LOW]`, `Medication`, `Done`, `Pending`) that have consistent 1-character-per-character width. The Streamlit UI keeps the emoji; the CLI uses plain labels. Both sets live in `main.py` so `pawpal_system.py` stays format-agnostic.
+
+---
+
 ## Setup
 
 ```bash

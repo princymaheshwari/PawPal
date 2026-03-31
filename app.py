@@ -1,16 +1,31 @@
+import pathlib
 import streamlit as st
 from datetime import datetime, date
-from pawpal_system import Owner, Pet, Task, RecurringTask, Preference, Scheduler, TaskFilter
+from pawpal_system import (Owner, Pet, Task, RecurringTask, Preference, Scheduler, TaskFilter,
+                           PRIORITY_EMOJI, TASK_TYPE_EMOJI, STATUS_EMOJI)
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="wide")
 st.title("🐾 PawPal+")
 st.caption("Your daily pet care planner — powered by smart scheduling algorithms.")
 
+DATA_FILE = pathlib.Path("data.json")
+
+def save_data():
+    """Write the current owner state to data.json."""
+    if st.session_state.owner is not None:
+        st.session_state.owner.save_to_json(DATA_FILE)
+
 # ---------------------------------------------------------------------------
-# Session state initialisation
+# Session state initialisation — load from data.json if it exists
 # ---------------------------------------------------------------------------
 if "owner" not in st.session_state:
-    st.session_state.owner = None
+    if DATA_FILE.exists():
+        try:
+            st.session_state.owner = Owner.load_from_json(DATA_FILE)
+        except Exception:
+            st.session_state.owner = None
+    else:
+        st.session_state.owner = None
 if "plan" not in st.session_state:
     st.session_state.plan = None
 
@@ -52,6 +67,7 @@ with st.form("owner_form"):
             st.session_state.owner.set_available_time(int(available_minutes))
             st.session_state.owner.day_start = day_start.strip()
             st.session_state.owner.buffer_minutes = int(buffer_minutes)
+        save_data()
         st.success(
             f"Owner saved: {owner_name} | {available_minutes} min | "
             f"starts {day_start} | {buffer_minutes}-min buffer"
@@ -89,6 +105,7 @@ with st.form("pet_form"):
             needs = [n.strip() for n in special_needs.split(",") if n.strip()]
             new_pet = Pet(name=pet_name, species=species, age=age, breed=breed, special_needs=needs)
             owner.add_pet(new_pet)
+            save_data()
             st.success(f"Added {new_pet}")
 
 if owner.pets:
@@ -137,6 +154,7 @@ else:
                 notes=notes,
             )
             owner.get_pet(task_pet).add_task(new_task)
+            save_data()
             st.success(f"Added task: {new_task}")
 
     total_tasks = sum(len(p.tasks) for p in owner.pets)
@@ -214,6 +232,7 @@ else:
                 start_date=rt_start if rt_freq in ("biweekly", "every_n_days") else None,
             )
             owner.get_pet(rt_pet).add_recurring_task(new_rt)
+            save_data()
             st.success(f"Added recurring task: {new_rt}")
 
     for pet in owner.pets:
@@ -242,6 +261,7 @@ with st.form("pref_form"):
             description=f"Prefer {pref_task_type}s in the {pref_value}",
         )
         owner.add_preference(pref)
+        save_data()
         st.success(f"Preference saved: {pref}")
 
 if owner.preferences:
@@ -296,13 +316,14 @@ if st.session_state.plan is not None:
         for task in plan.scheduled_tasks:
             time_label = task.scheduled_time if task.scheduled_time else "--:--"
             reason = plan.get_reason(task.task_id)
-            urgency_flag = "[URGENT] " if "urgent" in reason.lower() or "special need" in reason.lower() else ""
+            is_urgent = "urgent" in reason.lower() or "special need" in reason.lower()
+            urgency_flag = "⚡ " if is_urgent else ""
             rows.append({
                 "Time": time_label,
                 "Task": f"{urgency_flag}{task.title}",
                 "Pet": task.pet_name or "-",
-                "Type": task.task_type,
-                "Priority": task.priority.upper(),
+                "Type": TASK_TYPE_EMOJI.get(task.task_type, task.task_type),
+                "Priority": PRIORITY_EMOJI.get(task.priority, task.priority),
                 "Duration (min)": task.duration_minutes,
                 "Reason": reason,
             })
@@ -330,7 +351,8 @@ if st.session_state.plan is not None:
             skipped_rows.append({
                 "Task": task.title,
                 "Pet": task.pet_name or "-",
-                "Priority": task.priority.upper(),
+                "Type": TASK_TYPE_EMOJI.get(task.task_type, task.task_type),
+                "Priority": PRIORITY_EMOJI.get(task.priority, task.priority),
                 "Duration (min)": task.duration_minutes,
                 "Reason": plan.get_reason(task.task_id),
             })
@@ -396,10 +418,10 @@ else:
                 "Time": t.scheduled_time if t.scheduled_time else "(flexible)",
                 "Task": t.title,
                 "Pet": t.pet_name or "-",
-                "Type": t.task_type,
-                "Priority": t.priority.upper(),
+                "Type": TASK_TYPE_EMOJI.get(t.task_type, t.task_type),
+                "Priority": PRIORITY_EMOJI.get(t.priority, t.priority),
                 "Duration (min)": t.duration_minutes,
-                "Status": "Done" if t.is_completed else "Pending",
+                "Status": STATUS_EMOJI.get(t.is_completed, "-"),
             })
         st.table(filter_rows)
     else:
