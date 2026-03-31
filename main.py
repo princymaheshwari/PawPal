@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 from pawpal_system import Owner, Pet, Task, RecurringTask, Preference, Scheduler, TaskFilter
 
 # --- Setup ---
@@ -62,8 +62,8 @@ bella.add_task(Task(
     pet_name="Bella",            # no fixed time -- flexible
 ))
 
-# Mark one task complete to demonstrate status filtering
-mochi.tasks[1].mark_complete()  # Flea Medication is done
+# Mark one task complete via the OLD direct call (no recurrence on this task)
+mochi.tasks[1].mark_complete()  # Flea Medication -- no recurrence, just marks done
 
 # --- Preferences ---
 owner.add_preference(Preference(
@@ -182,3 +182,46 @@ print("DEMO 6: Generated daily schedule")
 print("=" * 55)
 plan = scheduler.generate_plan(today)
 print(plan.summary())
+
+# -----------------------------------------------------------------------
+# DEMO 7: Recurring task auto-scheduling via Pet.complete_task()
+# Create a daily task directly on Bella with recurrence="daily"
+# When complete_task() is called, it uses timedelta(days=1) to set
+# next_due_date and immediately adds the next instance to bella.tasks
+# -----------------------------------------------------------------------
+print()
+print("=" * 55)
+print("DEMO 7: Recurring task auto-scheduling")
+print("=" * 55)
+
+daily_feed = Task(
+    title="Lunch Feeding",
+    task_type="feeding",
+    duration_minutes=10,
+    priority="high",
+    scheduled_time="12:00",
+    pet_name="Bella",
+    recurrence="daily",   # <-- this task repeats every day
+)
+bella.add_task(daily_feed)
+
+today_date = date.today()
+print(f"  Before completion -- Bella has {len(bella.tasks)} task(s)")
+print(f"  Completing '{daily_feed.title}' on {today_date} ...")
+
+bella.complete_task(daily_feed.task_id, today_date)
+
+print(f"  After completion  -- Bella has {len(bella.tasks)} task(s)")
+print()
+for t in bella.tasks:
+    status  = "[x]" if t.is_completed else "[ ]"
+    due     = f" | next due: {t.next_due_date}" if t.next_due_date else ""
+    recurs  = f" | recurs: {t.recurrence}" if t.recurrence else ""
+    print(f"  {status} {t}{recurs}{due}")
+
+# Verify timedelta arithmetic: next_due_date should be today + 1 day
+expected = today_date + __import__("datetime").timedelta(days=1)
+assert bella.tasks[-1].next_due_date == expected or bella.tasks[-1].is_completed is False
+print()
+print(f"  Next occurrence scheduled for: {bella.tasks[-1].next_due_date}")
+print(f"  (today={today_date} + 1 day = {expected})")

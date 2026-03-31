@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, date, timedelta
 
 
 class Pet:
@@ -42,6 +42,29 @@ class Pet:
         """Remove a recurring task template by its title."""
         self.recurring_tasks = [rt for rt in self.recurring_tasks if rt.title != title]
 
+    def complete_task(self, task_id, today_date=None):
+        """Mark a task complete; if it recurs, auto-add the next occurrence to this pet."""
+        if today_date is None:
+            today_date = date.today()
+        for task in self.tasks:
+            if task.task_id == task_id:
+                task.mark_complete(today_date)
+                if task.next_due_date is not None:
+                    next_task = Task(
+                        title=task.title,
+                        task_type=task.task_type,
+                        duration_minutes=task.duration_minutes,
+                        priority=task.priority,
+                        scheduled_time=task.scheduled_time,
+                        pet_name=task.pet_name,
+                        notes=task.notes,
+                        recurrence=task.recurrence,
+                    )
+                    next_task.next_due_date = task.next_due_date
+                    self.tasks.append(next_task)
+                return task
+        return None
+
     def get_tasks_today(self, day_of_week):
         """Return one-off tasks plus any recurring tasks active today."""
         today_tasks = list(self.tasks)
@@ -57,7 +80,7 @@ class Pet:
 
 class Task:
     def __init__(self, title, task_type, duration_minutes, priority,
-                 scheduled_time=None, pet_name=None, notes=""):
+                 scheduled_time=None, pet_name=None, notes="", recurrence=None):
         """Create a task with a unique ID and set completion status to False."""
         self.task_id = str(uuid.uuid4())
         self.title = title
@@ -68,10 +91,22 @@ class Task:
         self.is_completed = False
         self.pet_name = pet_name
         self.notes = notes
+        self.recurrence = recurrence    # "daily", "weekly", or None
+        self.next_due_date = None       # set by mark_complete() when recurrence is active
 
-    def mark_complete(self):
-        """Mark this task as completed."""
+    def mark_complete(self, today_date=None):
+        """Mark this task as completed and calculate next_due_date if it recurs."""
         self.is_completed = True
+        if self.recurrence is None:
+            return
+        if today_date is None:
+            today_date = date.today()
+        elif isinstance(today_date, str):
+            today_date = date.fromisoformat(today_date)
+        if self.recurrence == "daily":
+            self.next_due_date = today_date + timedelta(days=1)
+        elif self.recurrence == "weekly":
+            self.next_due_date = today_date + timedelta(weeks=1)
 
     def mark_incomplete(self):
         """Mark this task as not yet completed."""
@@ -119,6 +154,7 @@ class RecurringTask:
 
     def to_task(self):
         """Create and return a new Task instance from this template's attributes."""
+        recurrence = self.frequency if self.frequency in ("daily", "weekly") else None
         return Task(
             title=self.title,
             task_type=self.task_type,
@@ -127,6 +163,7 @@ class RecurringTask:
             scheduled_time=self.scheduled_time,
             pet_name=self.pet_name,
             notes=self.notes,
+            recurrence=recurrence,
         )
 
     def __str__(self):
