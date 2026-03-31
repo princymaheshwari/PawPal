@@ -1,124 +1,157 @@
-# PawPal+ (Module 2 Project)
+# PawPal+
 
-You are building **PawPal+**, a Streamlit app that helps a pet owner plan care tasks for their pet.
+**PawPal+** is a Streamlit app that helps busy pet owners plan and track daily care tasks across multiple pets. It takes your available time, your pets' needs, and your scheduling preferences, then generates a prioritized daily plan — complete with conflict warnings, urgency boosts for health-critical tasks, and recurring reminders that never need to be re-entered.
 
-## Scenario
+---
 
-A busy pet owner needs help staying consistent with pet care. They want an assistant that can:
+## Features
 
-- Track pet care tasks (walks, feeding, meds, enrichment, grooming, etc.)
-- Consider constraints (time available, priority, owner preferences)
-- Produce a daily plan and explain why it chose that plan
+### Scheduling
 
-Your job is to design the system first (UML), then implement the logic in Python, then connect it to the Streamlit UI.
+| Feature | Description |
+|---|---|
+| **Priority-based scheduling** | Tasks are ranked high → medium → low. The scheduler always fits the most important tasks first within your available time budget. |
+| **Urgency boost** | If a pet has a special need (e.g. `insulin injection`, `arthritis`) that matches a task's type, that task receives a priority boost and floats to the top — even above other high-priority tasks. |
+| **Clinical dependency ordering** | Flexible tasks are reordered so that medication always comes before feeding, feeding before walks, walks before grooming, and grooming before appointments. This mirrors real veterinary care sequencing. |
+| **Fixed-time tasks** | Tasks with a specific scheduled time (e.g. `08:00`) are always included in the plan and locked to that slot. |
+| **Configurable day start and buffer** | You choose when your day starts (e.g. `07:30`) and how many minutes of breathing room to leave between tasks. Flexible tasks are spread out accordingly. |
+| **Overload warning** | If the total requested task time exceeds your budget, the app warns you before generating the plan — telling you exactly how many minutes over you are and which tasks will be skipped. |
 
-## What you will build
+### Conflict Detection
 
-Your final app should:
+| Feature | Description |
+|---|---|
+| **Time-overlap detection** | The scheduler scans all fixed-time tasks for wall-clock overlaps using pairwise interval comparison. If two tasks share a time window, a clear error banner appears at the top of the schedule. |
+| **Non-crashing warnings** | Conflicts are reported as human-readable messages — the app never crashes. You see the warning and the full schedule together so you can decide what to reschedule. |
 
-- Let a user enter basic owner + pet info
-- Let a user add/edit tasks (duration + priority at minimum)
-- Generate a daily schedule/plan based on constraints and priorities
-- Display the plan clearly (and ideally explain the reasoning)
-- Include tests for the most important scheduling behaviors
+### Recurring Tasks
 
-## Getting started
+| Feature | Description |
+|---|---|
+| **Daily recurrence** | A task marked `daily` appears in every day's plan automatically. |
+| **Weekly recurrence** | Fires on specified days of the week (e.g. Mon, Wed, Fri). |
+| **Bi-weekly recurrence** | Fires every 14 days from a chosen start date using day-delta arithmetic. |
+| **Every-N-days recurrence** | Fires every custom number of days from a start date (e.g. flea treatment every 30 days). |
+| **Auto-spawn on completion** | When you mark a recurring task complete, the next occurrence is automatically added to your pet's task list with the correct due date calculated via Python's `timedelta`. |
 
-### Setup
+### Filtering & Viewing
+
+| Feature | Description |
+|---|---|
+| **Filter by pet** | See only the tasks that belong to a specific pet. |
+| **Filter by task type** | View only medication, feeding, walk, grooming, appointment, or other tasks. |
+| **Filter by status** | Separate completed tasks from pending ones. |
+| **Filter by priority** | Show only high, medium, or low priority tasks. |
+| **Sort by time** | All filtered results are sorted chronologically by scheduled time. Tasks with no fixed time appear at the end. |
+
+---
+
+## 📸 Demo
+
+![PawPal+ App Screenshot](demo.png)
+
+---
+
+## Setup
 
 ```bash
+# 1. Clone or download the project
+# 2. Create and activate a virtual environment
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+
+# 3. Install dependencies
 pip install -r requirements.txt
+
+# 4. Launch the app
+streamlit run app.py
 ```
 
-## Smarter Scheduling
+---
 
-PawPal+ goes beyond a simple task list. The scheduler contains several algorithmic features that make it behave like a real pet management tool.
+## Usage
 
-### Core features
+The app is divided into six sections that you work through top to bottom:
 
-**Sorting by time**
-All tasks in the generated plan are sorted chronologically by their `HH:MM` scheduled time. `Scheduler.sort_by_time()` uses a lambda key on the time string — because times are zero-padded fixed-width, plain string comparison produces correct chronological order without parsing. Tasks with no fixed time are pushed to the end using a `"99:99"` sentinel value.
+**1. Owner Setup**
+Enter your name, how many minutes you have available today, what time your day starts, and how much buffer to leave between tasks.
 
-**Filtering**
-The `TaskFilter` class provides four static methods to slice any task list without touching the UI layer:
-- `by_pet(tasks, pet_name)` — returns only tasks for a named pet
-- `by_type(tasks, task_type)` — returns only tasks of a given type (e.g. `"medication"`)
-- `by_status(tasks, completed)` — separates done tasks from pending ones
-- `by_priority(tasks, priority)` — returns tasks at a specific priority level
+**2. Add a Pet**
+Enter each pet's name, species, age, breed, and any special care needs (comma-separated). Special needs drive the urgency boost — for example, entering `insulin injection` causes that pet's medication tasks to be treated as health-critical.
 
-**Recurring tasks**
-`RecurringTask` templates generate a fresh `Task` instance each day they are active via `to_task()`, so the template itself is never marked complete. Supported frequencies:
-- `"daily"` — fires every day
-- `"weekly"` — fires on specified days of the week
-- `"biweekly"` — fires every 14 days from a `start_date` using day-delta arithmetic
-- `"every_n_days"` — fires every `interval_days` days from a `start_date`
+**3. Add Tasks**
+Add one-off care tasks (walks, feedings, medications, grooming, appointments). Set a fixed time to lock a task to a specific slot, or leave it blank to let the scheduler place it automatically.
 
-When a recurring task is completed via `Pet.complete_task()`, a new instance is automatically added to the pet's task list with `next_due_date` set using Python's `timedelta`.
+**3.5 Add Recurring Tasks**
+Add task templates that repeat on a schedule. Choose from daily, weekly, bi-weekly, or every-N-days frequency. These generate fresh task instances each day without needing to be re-entered.
 
-**Conflict detection**
-`Scheduler.detect_conflicts()` scans all fixed-time tasks for wall-clock overlaps before the schedule is built. Two tasks conflict when their time windows overlap: `a_start < b_end AND b_start < a_end`. Conflicts are reported as human-readable warning strings stored on `DailyPlan.conflicts` and shown at the top of the schedule — the program never crashes, it warns instead.
+**4. Scheduling Preferences**
+Optionally tell the scheduler when you prefer certain task types — for example, "prefer walks in the morning."
+
+**5. Generate Today's Schedule**
+Click **Generate schedule**. The app runs the full scheduling pipeline and displays:
+- An overload warning if total task time exceeds your budget
+- Conflict errors for any overlapping fixed-time tasks
+- Budget metrics (scheduled, remaining, tasks done)
+- A sortable table of scheduled tasks with the reasoning behind each placement
+- A table of skipped tasks and why they were dropped
+
+**6. Filter & View Tasks**
+Use the four dropdown filters to slice the full task list by pet, type, status, and priority. Results are sorted by scheduled time automatically.
 
 ---
 
-### Additional algorithms
-
-**Urgency scoring**
-`Task.urgency_score(pet)` gives a task a `+2` boost to its sort score if the pet's `special_needs` list contains a keyword matching the task type (e.g. a pet with `"insulin injection"` in special needs causes its medication tasks to float above routine high-priority tasks). Keywords are defined in the `URGENCY_KEYWORDS` constant and cover medication, feeding, walking, grooming, and appointments.
-
-**Task dependency ordering**
-`Scheduler._enforce_dependencies()` reorders flexible tasks so that clinical sequencing is always respected: medication must come before feeding, feeding before walks, walks before grooming, grooming before appointments. This is implemented as a stable sort using the `TASK_ORDER` rank as the primary key — equivalent to a topological sort on a linear dependency graph.
-
-**Smarter time-slot assignment**
-`Scheduler._assign_times()` replaces the original hardcoded 8 AM start with a configurable `day_start` read from the `Owner` object, and inserts a `buffer_minutes` gap (default 5 minutes) between consecutive flexible tasks so the schedule never feels artificially packed. A `while changed` loop correctly handles adjacent fixed-task blocks, fixing a subtle single-pass bug in the original implementation.
-
-**Overload warning**
-`Scheduler.compute_overload_warning()` sums all requested task durations before fitting and compares the total to the owner's time budget. If over budget, it returns a message stating how many minutes over, what percentage, how much fixed tasks consume, and how many flexible minutes are competing for the remainder. The result is stored on `DailyPlan.overload_warning` and shown at the top of the schedule output.
-
----
-
----
-
-## Testing PawPal+
-
-### Running the tests
+## Running the Tests
 
 ```bash
 python -m pytest tests/test_pawpal.py -v
 ```
 
-All 67 tests complete in under a second. The `-v` flag prints each test name so you can see exactly what passed.
+All 67 tests complete in under a second. The `-v` flag prints each test name.
 
-### What the tests cover
-
-The suite is organised into 8 sections, each targeting a distinct part of the system:
+### Test coverage
 
 | Section | Tests | What is verified |
 |---|---|---|
-| **Schedule Generation** | 9 | Empty plans, budget fitting, fixed tasks always scheduled, overload warning, urgency boost ordering, clinical dependency order, reasoning recorded for every task |
-| **Recurring Task Activation** | 14 | All 4 frequency modes (`daily`, `weekly`, `biweekly`, `every_n_days`), correct day-on / day-off behaviour, `days_of_week=None`, biweekly day 0/7/14 arithmetic, future `start_date` guard, `Pet.get_tasks_today` integration |
-| **Conflict Detection** | 8 | True overlaps flagged, back-to-back tasks are NOT flagged, zero/single fixed task edge cases, partial overlaps, 3-way conflict pairs, conflicts surfaced on `DailyPlan` |
-| **Task Completion & Recurrence** | 6 | Daily task creates next-day task, weekly task creates next-week task, one-off task spawns nothing, invalid ID returns `None`, next task inherits all properties |
-| **Sorting & Time-Slot Assignment** | 8 | Chronological sort correctness, single flexible task placed at `day_start`, flexible task moved past fixed slot, two adjacent fixed slots handled by the while-changed loop, `buffer_minutes=0` back-to-back, exact buffer gap, custom `day_start` |
-| **Urgency Scoring** | 6 | Keyword match returns `+2`, no match returns `0`, `None` pet, case-insensitivity, partial substring match (`"arthrit"` → `"arthritis"`), cross-type isolation |
-| **Task Filters** | 6 | Filter by pet, type, completed status, pending status, high priority, low priority |
-| **DailyPlan Utilities** | 7 | Time remaining, `all_done` states (incomplete / complete / empty), `get_reason` for known and unknown IDs, `completion_count` |
+| Schedule Generation | 9 | Empty plans, budget fitting, fixed tasks always scheduled, overload warning, urgency boost ordering, clinical dependency order, reasoning recorded for every task |
+| Recurring Task Activation | 14 | All 4 frequency modes, correct day-on/day-off behaviour, biweekly arithmetic, future start-date guard, `Pet.get_tasks_today` integration |
+| Conflict Detection | 8 | True overlaps flagged, back-to-back tasks not flagged, zero/single fixed-task edge cases, partial overlaps, 3-way conflict pairs |
+| Task Completion & Recurrence | 6 | Daily task creates next-day task, weekly creates next-week task, one-off spawns nothing, invalid ID returns `None` |
+| Sorting & Time-Slot Assignment | 8 | Chronological sort, single flexible task placed at `day_start`, flexible task moved past fixed slot, while-changed loop correctness, buffer gap |
+| Urgency Scoring | 6 | Keyword match gives +2, no match gives 0, `None` pet, case-insensitivity, partial substring match |
+| Task Filters | 6 | Filter by pet, type, completed status, pending status, high priority, low priority |
+| DailyPlan Utilities | 7 | Time remaining, `all_done` states, `get_reason` for known and unknown IDs, `completion_count` |
 
-### Confidence Level
-
-**4 / 5 stars**
-
-The core scheduling pipeline — priority sorting, urgency boosting, dependency ordering, conflict detection, time-slot assignment, and recurring task date arithmetic — is fully tested with deterministic inputs (fixed reference date `2026-03-30`) so results never vary between runs. All 67 tests pass. One star is held back because the Streamlit UI layer (`app.py`) and session-state persistence are not covered by automated tests; those flows currently require manual verification in the browser.
+**Confidence: 4 / 5** — the core scheduling pipeline is fully tested with deterministic inputs. One star is held back because the Streamlit UI and session-state persistence are not covered by automated tests.
 
 ---
 
-### Suggested workflow
+## Project Structure
 
-1. Read the scenario carefully and identify requirements and edge cases.
-2. Draft a UML diagram (classes, attributes, methods, relationships).
-3. Convert UML into Python class stubs (no logic yet).
-4. Implement scheduling logic in small increments.
-5. Add tests to verify key behaviors.
-6. Connect your logic to the Streamlit UI in `app.py`.
-7. Refine UML so it matches what you actually built.
+```
+PawPal+/
+├── app.py               # Streamlit user interface
+├── pawpal_system.py     # All scheduling logic and data classes
+├── main.py              # CLI demo (8 demos, no UI required)
+├── generate_uml.py      # Generates uml_final.png from the Mermaid diagram
+├── uml_final.mmd        # Mermaid source for the UML class diagram
+├── uml_final.png        # Final UML class diagram (exported image)
+├── reflection.md        # System design reflection and UML
+├── requirements.txt     # Python dependencies
+├── tests/
+│   └── test_pawpal.py   # 67-test pytest suite
+└── docs/
+    └── app_screenshot.png   # Add your own screenshot here
+```
+
+---
+
+## Architecture Overview
+
+PawPal+ uses a three-layer design:
+
+- **Data layer** — `Pet`, `Task`, `RecurringTask`, `Preference` hold state. Each pet owns its own task lists so ownership is structurally enforced.
+- **Coordination layer** — `Owner` aggregates pets and preferences. `DailyPlan` is the output artifact: it holds the scheduled tasks, skipped tasks, conflict messages, overload warning, and per-task reasoning strings.
+- **Logic layer** — `Scheduler` runs the full scheduling pipeline (collect → overload check → conflict detection → urgency sort → dependency order → preference application → greedy fit → time assignment). `TaskFilter` is a stateless utility class for slicing task lists without touching the UI.
+
+The scheduler uses a **greedy first-fit algorithm**: it always includes fixed-time tasks, then fills the remaining budget by walking the priority-sorted flexible task list and adding each task if it fits. It never backtracks. This is a deliberate tradeoff — a perfect fit would require solving the NP-hard 0/1 knapsack problem, which is overkill for a list of 8–12 daily pet care tasks.
