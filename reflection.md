@@ -34,6 +34,25 @@ The core actions a user should be able to perform are:
 
 ```mermaid
 classDiagram
+    class URGENCY_KEYWORDS {
+        <<constant>>
+        medication list
+        feeding list
+        walk list
+        grooming list
+        appointment list
+    }
+
+    class TASK_ORDER {
+        <<constant>>
+        medication 0
+        feeding 1
+        walk 2
+        grooming 3
+        appointment 4
+        other 5
+    }
+
     class Pet {
         +str name
         +str species
@@ -49,7 +68,8 @@ classDiagram
         +remove_task(task_id str)
         +add_recurring_task(rt RecurringTask)
         +remove_recurring_task(title str)
-        +get_tasks_today(day_of_week str) list
+        +complete_task(task_id str, today_date date) Task
+        +get_tasks_today(day_of_week str, today_date date) list
         +__str__() str
     }
 
@@ -63,9 +83,12 @@ classDiagram
         +bool is_completed
         +str pet_name
         +str notes
-        +mark_complete()
+        +str recurrence
+        +date next_due_date
+        +mark_complete(today_date date)
         +mark_incomplete()
         +priority_score() int
+        +urgency_score(pet Pet) int
         +is_fixed_time() bool
         +__str__() str
     }
@@ -80,7 +103,9 @@ classDiagram
         +list days_of_week
         +str pet_name
         +str notes
-        +is_active_today(day_of_week str) bool
+        +int interval_days
+        +str start_date
+        +is_active_today(day_of_week str, today_date date) bool
         +to_task() Task
         +__str__() str
     }
@@ -97,6 +122,8 @@ classDiagram
     class Owner {
         +str name
         +int available_minutes
+        +str day_start
+        +int buffer_minutes
         +list pets
         +list preferences
         +add_pet(pet Pet)
@@ -106,7 +133,7 @@ classDiagram
         +remove_preference(task_type str)
         +set_available_time(minutes int)
         +get_preferences_for(task_type str) list
-        +all_tasks_today(day_of_week str) list
+        +all_tasks_today(day_of_week str, today_date date) list
     }
 
     class DailyPlan {
@@ -115,6 +142,8 @@ classDiagram
         +int total_duration_minutes
         +int available_minutes
         +dict reasoning
+        +list conflicts
+        +str overload_warning
         +str generated_at
         +add_scheduled_task(task Task, reason str)
         +add_skipped_task(task Task, reason str)
@@ -125,16 +154,28 @@ classDiagram
         +summary() str
     }
 
+    class TaskFilter {
+        <<utility>>
+        +by_pet(tasks list, pet_name str)$ list
+        +by_type(tasks list, task_type str)$ list
+        +by_status(tasks list, completed bool)$ list
+        +by_priority(tasks list, priority str)$ list
+    }
+
     class Scheduler {
         +Owner owner
-        +generate_plan(day_of_week str) DailyPlan
-        -_collect_tasks(day_of_week str) list
+        +generate_plan(day_of_week str, today_date date) DailyPlan
+        +compute_overload_warning(tasks list) str
+        +detect_conflicts(fixed_tasks list) list
+        +sort_by_time(tasks list) list
+        -_collect_tasks(day_of_week str, today_date date) list
         -_separate_fixed(tasks list) tuple
-        -_sort_flexible(tasks list) list
+        -_sort_flexible(tasks list, pets_by_name dict) list
+        -_enforce_dependencies(tasks list) list
         -_apply_preferences(tasks list) list
         -_fit_tasks(fixed list, flexible list, budget int) tuple
         -_build_reasoning(task Task, included bool) str
-        -_assign_times(tasks list) list
+        -_assign_times(tasks list, day_start str, buffer_minutes int) list
     }
 
     Owner "1" --> "many" Pet : has
@@ -142,9 +183,12 @@ classDiagram
     Pet "1" --> "many" Task : has
     Pet "1" --> "many" RecurringTask : has
     RecurringTask --> Task : produces via to_task()
+    Pet --> Task : spawns next via complete_task()
     Scheduler --> Owner : receives
     Scheduler --> DailyPlan : produces
     DailyPlan "1" --> "many" Task : contains
+    Task ..> URGENCY_KEYWORDS : reads
+    Scheduler ..> TASK_ORDER : reads
 ```
 
 **b. Design changes**
