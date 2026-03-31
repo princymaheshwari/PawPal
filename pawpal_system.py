@@ -1,6 +1,28 @@
 import uuid
 from datetime import datetime, date, timedelta
 
+# Algorithm B: keyword map for urgency scoring
+# If a pet's special_needs contain any of these keywords for a matching task type,
+# that task gets a +2 boost so health-critical tasks float above routine ones.
+URGENCY_KEYWORDS = {
+    "medication":  ["medication", "insulin", "injection", "pill", "prescription", "dose"],
+    "feeding":     ["diet", "renal", "diabetic", "weight", "nutrition", "allerg"],
+    "walk":        ["mobility", "arthrit", "rehab", "exercise", "joint"],
+    "grooming":    ["skin", "dermat", "coat", "mite", "flea", "tick"],
+    "appointment": ["cancer", "chemo", "surgery", "post-op", "check-up"],
+}
+
+# Algorithm C: task type dependency order
+# Lower rank = must come earlier in the day (medication before feeding, etc.)
+TASK_ORDER = {
+    "medication": 0,
+    "feeding":    1,
+    "walk":       2,
+    "grooming":   3,
+    "appointment":4,
+    "other":      5,
+}
+
 
 class Pet:
     def __init__(self, name, species, age, breed="", special_needs=None):
@@ -65,11 +87,18 @@ class Pet:
                 return task
         return None
 
-    def get_tasks_today(self, day_of_week):
-        """Return one-off tasks plus any recurring tasks active today."""
+    # Algorithm E: today_date passed through so RecurringTask can do date-math
+    def get_tasks_today(self, day_of_week, today_date=None):
+        """Return all tasks active today for this pet: one-off tasks plus generated recurring tasks.
+
+        today_date (date or None) is forwarded to RecurringTask.is_active_today() so that
+        biweekly and every_n_days frequencies can do date arithmetic. Defaults to date.today()
+        inside RecurringTask if not provided. Each active RecurringTask produces a fresh Task
+        via to_task() rather than reusing the template, keeping the template uncompleted.
+        """
         today_tasks = list(self.tasks)
         for rt in self.recurring_tasks:
-            if rt.is_active_today(day_of_week):
+            if rt.is_active_today(day_of_week, today_date):
                 today_tasks.append(rt.to_task())
         return today_tasks
 
@@ -117,6 +146,24 @@ class Task:
         scores = {"high": 3, "medium": 2, "low": 1}
         return scores.get(self.priority, 0)
 
+    # Algorithm B: urgency boost based on pet's special needs
+    def urgency_score(self, pet):
+        """Return +2 if this pet's special needs contain a keyword matching this task's type, else 0.
+
+        Looks up URGENCY_KEYWORDS[task_type] and checks whether any word in pet.special_needs
+        contains one of those substrings (case-insensitive). A match signals that this task is
+        health-critical for this pet, boosting its sort score above routine tasks of equal priority.
+        Returns 0 if pet is None or no keyword matches are found.
+        """
+        if pet is None:
+            return 0
+        keywords = URGENCY_KEYWORDS.get(self.task_type, [])
+        for need in pet.special_needs:
+            for kw in keywords:
+                if kw in need.lower():
+                    return 2
+        return 0
+
     def is_fixed_time(self):
         """Return True if this task has a specific scheduled time set."""
         return self.scheduled_time is not None
@@ -128,9 +175,10 @@ class Task:
 
 
 class RecurringTask:
+    # Algorithm E: added interval_days and start_date for biweekly / every_n_days support
     def __init__(self, title, task_type, duration_minutes, priority,
                  frequency="daily", scheduled_time=None, days_of_week=None,
-                 pet_name=None, notes=""):
+                 pet_name=None, notes="", interval_days=None, start_date=None):
         """Create a recurring task template that generates a fresh Task each active day."""
         self.title = title
         self.task_type = task_type
@@ -141,15 +189,40 @@ class RecurringTask:
         self.days_of_week = days_of_week
         self.pet_name = pet_name
         self.notes = notes
+        self.interval_days = interval_days  # used by every_n_days and biweekly
+        self.start_date = start_date or date.today().isoformat()  # "YYYY-MM-DD" reference
 
-    def is_active_today(self, day_of_week):
-        """Return True if this recurring task should appear on the given day of the week."""
+    def is_active_today(self, day_of_week, today_date=None):
+        """Return True if this recurring task should appear on the given day.
+
+        Supports four frequency modes:
+          - "daily": always active.
+          - "weekly": active on days listed in days_of_week (all days if None).
+          - "biweekly": active every 14 days from start_date using timedelta arithmetic.
+          - "every_n_days": active every interval_days days from start_date.
+        For date-based modes, today_date defaults to date.today() if not provided.
+        Returns False if today_date is before start_date (task hasn't started yet).
+        """
         if self.frequency == "daily":
             return True
         if self.frequency == "weekly":
             if self.days_of_week is None:
                 return True
             return day_of_week in self.days_of_week
+        # Algorithm E: date-arithmetic branches
+        if today_date is None:
+            today_date = date.today()
+        elif isinstance(today_date, str):
+            today_date = date.fromisoformat(today_date)
+        start = date.fromisoformat(self.start_date)
+        delta = (today_date - start).days
+        if delta < 0:
+            return False
+        if self.frequency == "biweekly":
+            return delta % 14 == 0
+        if self.frequency == "every_n_days":
+            if self.interval_days and self.interval_days > 0:
+                return delta % self.interval_days == 0
         return False
 
     def to_task(self):
@@ -190,10 +263,13 @@ class Preference:
 
 
 class Owner:
-    def __init__(self, name, available_minutes=120):
-        """Create an owner with a name, a time budget, and empty pet and preference lists."""
+    # Algorithm D: day_start and buffer_minutes added so Scheduler can read them
+    def __init__(self, name, available_minutes=120, day_start="08:00", buffer_minutes=5):
+        """Create an owner with a name, time budget, and scheduling preferences."""
         self.name = name
         self.available_minutes = available_minutes
+        self.day_start = day_start          # when the owner's day begins (HH:MM)
+        self.buffer_minutes = buffer_minutes  # gap between consecutive flexible tasks
         self.pets = []
         self.preferences = []
 
@@ -228,11 +304,17 @@ class Owner:
         """Return all preferences that match the given task type."""
         return [p for p in self.preferences if p.matches_task_type(task_type)]
 
-    def all_tasks_today(self, day_of_week):
-        """Collect and return all tasks for today across every pet."""
+    # Algorithm E: today_date threaded through to pets
+    def all_tasks_today(self, day_of_week, today_date=None):
+        """Collect and return every task active today across all of the owner's pets.
+
+        Calls pet.get_tasks_today(day_of_week, today_date) for each pet and concatenates
+        the results. today_date is passed through so RecurringTask date-math (biweekly,
+        every_n_days) works correctly. Returns a flat list of Task objects.
+        """
         all_tasks = []
         for pet in self.pets:
-            all_tasks.extend(pet.get_tasks_today(day_of_week))
+            all_tasks.extend(pet.get_tasks_today(day_of_week, today_date))
         return all_tasks
 
 
@@ -244,7 +326,8 @@ class DailyPlan:
         self.total_duration_minutes = 0
         self.available_minutes = available_minutes
         self.reasoning = {}
-        self.conflicts = []     # populated by Scheduler.detect_conflicts()
+        self.conflicts = []             # Algorithm A
+        self.overload_warning = None    # Algorithm G
         self.generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     def add_scheduled_task(self, task, reason):
@@ -283,6 +366,11 @@ class DailyPlan:
             f"Budget: {self.available_minutes} min | Used: {self.total_duration_minutes} min | Remaining: {self.time_remaining()} min",
             "",
         ]
+        # Algorithm G: overload warning at top
+        if self.overload_warning:
+            lines.append(f"[!] {self.overload_warning}")
+            lines.append("")
+        # Algorithm A: conflict warnings
         if self.conflicts:
             lines.append("*** CONFLICTS DETECTED ***")
             for msg in self.conflicts:
@@ -335,35 +423,77 @@ class Scheduler:
         """Create a Scheduler tied to the given Owner."""
         self.owner = owner
 
-    def generate_plan(self, day_of_week):
-        """Main entry point: builds and returns a DailyPlan for the given day."""
+    # Algorithm E: today_date parameter threads through to RecurringTask.is_active_today
+    def generate_plan(self, day_of_week, today_date=None):
+        """Build and return a DailyPlan for the given day by running the full scheduling pipeline.
+
+        Pipeline order:
+          1. Collect all tasks (one-off + recurring) via _collect_tasks.
+          2. Compute overload warning if total requested time exceeds budget (Algorithm G).
+          3. Separate fixed-time tasks from flexible tasks.
+          4. Detect conflicts among fixed-time tasks (Algorithm A).
+          5. Sort flexible tasks by urgency-boosted priority (Algorithm B).
+          6. Enforce clinical dependency ordering — medication before feeding, etc. (Algorithm C).
+          7. Apply owner time-of-day preferences to flexible tasks.
+          8. Greedily fit flexible tasks into the remaining time budget.
+          9. Assign start times with configurable day_start and buffer gaps (Algorithm D).
+          10. Record each task with its reasoning string in the DailyPlan.
+        """
         plan = DailyPlan(self.owner.available_minutes)
-        tasks = self._collect_tasks(day_of_week)
+        tasks = self._collect_tasks(day_of_week, today_date)
+
+        plan.overload_warning = self.compute_overload_warning(tasks)    # Algorithm G
+
         fixed, flexible = self._separate_fixed(tasks)
-        plan.conflicts = self.detect_conflicts(fixed)   # check before scheduling
-        flexible = self._sort_flexible(flexible)
+        plan.conflicts = self.detect_conflicts(fixed)                   # Algorithm A
+
+        pets_by_name = {pet.name: pet for pet in self.owner.pets}
+        flexible = self._sort_flexible(flexible, pets_by_name)          # Algorithm B
+        flexible = self._enforce_dependencies(flexible)                 # Algorithm C
         flexible = self._apply_preferences(flexible)
+
         scheduled, skipped = self._fit_tasks(fixed, flexible, self.owner.available_minutes)
-        scheduled = self._assign_times(scheduled)
+        scheduled = self._assign_times(                                 # Algorithm D
+            scheduled,
+            day_start=self.owner.day_start,
+            buffer_minutes=self.owner.buffer_minutes,
+        )
         for task in scheduled:
             plan.add_scheduled_task(task, self._build_reasoning(task, included=True))
         for task in skipped:
             plan.add_skipped_task(task, self._build_reasoning(task, included=False))
         return plan
 
-    def detect_conflicts(self, fixed_tasks):
-        """Return a list of warning strings for any overlapping fixed-time tasks.
+    # Algorithm G: overload warning
+    def compute_overload_warning(self, tasks):
+        """Return a human-readable warning string if total task time exceeds the budget, else None.
 
-        Two tasks conflict when their time windows overlap:
-          task A runs from a_start to a_end,
-          task B runs from b_start to b_end,
-          they overlap if a_start < b_end AND b_start < a_end.
-        Returns an empty list if there are no conflicts -- never raises an exception.
+        Sums duration_minutes across all tasks (fixed and flexible) and compares to
+        owner.available_minutes. If over budget, the message includes: total requested,
+        budget, overflow amount, percentage over, fixed-task footprint, and how many flexible
+        minutes are competing for the remaining budget. Returns None if within budget.
         """
+        total = sum(t.duration_minutes for t in tasks)
+        budget = self.owner.available_minutes
+        if total <= budget:
+            return None
+        overflow = total - budget
+        pct = round((overflow / budget) * 100)
+        fixed_min = sum(t.duration_minutes for t in tasks if t.is_fixed_time())
+        flex_min  = sum(t.duration_minutes for t in tasks if not t.is_fixed_time())
+        return (
+            f"Overload: {total} min requested, {budget} min available "
+            f"({overflow} min over budget, {pct}% over). "
+            f"Fixed tasks use {fixed_min} min; "
+            f"{flex_min} min of flexible tasks compete for the remaining {budget - fixed_min} min. "
+            f"Lower-priority tasks will be skipped."
+        )
+
+    # Algorithm A: conflict detection
+    def detect_conflicts(self, fixed_tasks):
+        """Return a list of warning strings for any overlapping fixed-time tasks."""
         if len(fixed_tasks) < 2:
             return []
-
-        # Parse each fixed task into (start_min, end_min, task)
         intervals = []
         for task in fixed_tasks:
             try:
@@ -371,10 +501,8 @@ class Scheduler:
                 start = h * 60 + m
                 intervals.append((start, start + task.duration_minutes, task))
             except (ValueError, AttributeError):
-                continue  # skip tasks with malformed times rather than crashing
-
+                continue
         warnings = []
-        # Pairwise check -- O(n^2), fine for the small number of daily tasks
         for i in range(len(intervals)):
             for j in range(i + 1, len(intervals)):
                 a_start, a_end, a_task = intervals[i]
@@ -388,19 +516,52 @@ class Scheduler:
                     )
         return warnings
 
-    def _collect_tasks(self, day_of_week):
-        """Retrieve all tasks for today from the owner's pets."""
-        return self.owner.all_tasks_today(day_of_week)
+    # Algorithm E: today_date passed down to owner
+    def _collect_tasks(self, day_of_week, today_date=None):
+        """Retrieve all tasks active today from the owner's pets.
+
+        Delegates to owner.all_tasks_today(), passing today_date so RecurringTask
+        biweekly and every_n_days frequency checks can compute the correct day delta.
+        """
+        return self.owner.all_tasks_today(day_of_week, today_date)
 
     def _separate_fixed(self, tasks):
         """Split the task list into fixed-time tasks and flexible tasks."""
-        fixed = [t for t in tasks if t.is_fixed_time()]
+        fixed    = [t for t in tasks if t.is_fixed_time()]
         flexible = [t for t in tasks if not t.is_fixed_time()]
         return fixed, flexible
 
-    def _sort_flexible(self, tasks):
-        """Sort flexible tasks by priority descending, then duration ascending as tiebreaker."""
-        return sorted(tasks, key=lambda t: (-t.priority_score(), t.duration_minutes))
+    # Algorithm B: urgency-aware sort using pets_by_name lookup
+    def _sort_flexible(self, tasks, pets_by_name=None):
+        """Sort flexible tasks by combined priority + urgency score descending, duration ascending.
+
+        pets_by_name is a dict mapping pet name -> Pet object, used to call
+        task.urgency_score(pet) for each task. A task whose pet has a relevant special need
+        receives a +2 urgency bonus, causing it to sort above a same-priority task with no
+        health flag. Duration is the tiebreaker so shorter tasks fill time gaps first.
+        """
+        if pets_by_name is None:
+            pets_by_name = {}
+        def sort_key(t):
+            pet     = pets_by_name.get(t.pet_name)
+            urgency = t.urgency_score(pet)
+            return (-(t.priority_score() + urgency), t.duration_minutes)
+        return sorted(tasks, key=sort_key)
+
+    # Algorithm C: enforce clinical task-type ordering
+    def _enforce_dependencies(self, tasks):
+        """Reorder flexible tasks by clinical dependency rank: medication -> feeding -> walk -> grooming -> appointment -> other.
+
+        Uses TASK_ORDER ranks as the primary sort key so that, for example, all medication
+        tasks always appear before any feeding task regardless of who set what priority.
+        Within the same rank, higher priority and shorter duration are preferred.
+        Equivalent to a topological sort on a linear dependency graph — no cycles possible.
+        Fixed-time tasks are not passed here and are never reordered.
+        """
+        def dep_key(t):
+            rank = TASK_ORDER.get(t.task_type, 5)
+            return (rank, -t.priority_score(), t.duration_minutes)
+        return sorted(tasks, key=dep_key)
 
     def _apply_preferences(self, tasks):
         """Pin a suggested time onto flexible tasks that match a time_of_day preference."""
@@ -439,37 +600,46 @@ class Scheduler:
 
     def sort_by_time(self, tasks):
         """Sort a list of tasks by scheduled_time (HH:MM); tasks with no time go last."""
-        def time_key(t):
-            if t.scheduled_time is None:
-                return "99:99"  # pushes timeless tasks to the end
-            return t.scheduled_time  # "HH:MM" strings sort correctly as plain strings
-        return sorted(tasks, key=lambda t: time_key(t))
+        return sorted(tasks, key=lambda t: t.scheduled_time if t.scheduled_time else "99:99")
 
-    def _assign_times(self, tasks):
-        """Assign sequential start times to tasks that don't already have one."""
-        fixed = sorted(
-            [t for t in tasks if t.is_fixed_time()],
-            key=lambda t: t.scheduled_time,
-        )
+    # Algorithm D: configurable day_start and buffer_minutes; fixes single-pass bug
+    def _assign_times(self, tasks, day_start="08:00", buffer_minutes=5):
+        """Assign HH:MM start times to flexible tasks, avoiding fixed-task slots and inserting gaps.
+
+        day_start (str "HH:MM"): cursor starts here instead of hardcoded 8 AM.
+        buffer_minutes (int): gap added after each flexible task so tasks aren't crammed together.
+        Fixed-task windows are recorded as occupied intervals. Each flexible task advances the
+        cursor past any overlapping occupied window using a while-changed loop — this fixes the
+        original single-pass bug that could miss overlap when two fixed slots were adjacent.
+        Returns all tasks sorted chronologically by scheduled_time.
+        """
+        fixed    = sorted([t for t in tasks if t.is_fixed_time()],  key=lambda t: t.scheduled_time)
         flexible = [t for t in tasks if not t.is_fixed_time()]
 
-        # Track occupied slots as (start_min, end_min) from midnight
         occupied = []
         for t in fixed:
-            h, m = map(int, t.scheduled_time.split(":"))
+            h, m  = map(int, t.scheduled_time.split(":"))
             start = h * 60 + m
             occupied.append((start, start + t.duration_minutes))
 
-        # Place flexible tasks starting at 8:00 AM, skipping occupied slots
-        cursor = 8 * 60
+        dh, dm = map(int, day_start.split(":"))
+        cursor = dh * 60 + dm
+
         for task in flexible:
-            for occ_start, occ_end in sorted(occupied):
-                if cursor < occ_end and cursor + task.duration_minutes > occ_start:
-                    cursor = occ_end
+            # while-changed loop: re-scan all occupied slots after each cursor move
+            # (fixes the original single-pass bug where adjacent slots could still overlap)
+            changed = True
+            while changed:
+                changed = False
+                for occ_start, occ_end in sorted(occupied):
+                    if cursor < occ_end and cursor + task.duration_minutes > occ_start:
+                        cursor  = occ_end
+                        changed = True
             h, m = divmod(cursor, 60)
             task.scheduled_time = f"{h:02d}:{m:02d}"
-            occupied.append((cursor, cursor + task.duration_minutes))
+            # reserve slot + buffer so next task starts after the gap
+            occupied.append((cursor, cursor + task.duration_minutes + buffer_minutes))
             occupied.sort()
-            cursor += task.duration_minutes
+            cursor += task.duration_minutes + buffer_minutes
 
         return sorted(tasks, key=lambda t: t.scheduled_time)

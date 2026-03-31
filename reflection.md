@@ -171,8 +171,13 @@ Two bottlenecks were found when reviewing the class skeleton before implementing
 
 **b. Tradeoffs**
 
-- Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
+The scheduler uses a **greedy first-fit algorithm**: it sorts tasks by priority and then adds each one to the plan if it fits in the remaining time budget, moving on immediately if it does not. It never backtracks or tries a different combination.
+
+This creates a real tradeoff. Suppose 35 minutes remain in the budget and the next task (high priority) needs 40 minutes — it gets skipped. But two lower-priority tasks totaling 30 minutes could have filled that gap productively. The greedy approach misses this because it never looks ahead or reconsiders a rejected task.
+
+The alternative — trying every possible combination of tasks to find the best fit — is a version of the **0/1 knapsack problem**, which is NP-hard. A brute-force solution checking all combinations would be exponentially slower as the number of tasks grows.
+
+This tradeoff is reasonable for a pet care app for two reasons. First, a typical owner has at most 8–12 tasks per day, so the greedy result is close to optimal in practice — there are rarely enough tasks to expose the gap. Second, predictability matters more than perfection here: the owner can read the "Skipped" list and understand exactly why each task was dropped (not enough time, in priority order), which is more useful than an opaque optimal solution that is hard to explain.
 
 ---
 
