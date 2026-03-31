@@ -78,6 +78,41 @@ When a recurring task is completed via `Pet.complete_task()`, a new instance is 
 
 ---
 
+---
+
+## Testing PawPal+
+
+### Running the tests
+
+```bash
+python -m pytest tests/test_pawpal.py -v
+```
+
+All 67 tests complete in under a second. The `-v` flag prints each test name so you can see exactly what passed.
+
+### What the tests cover
+
+The suite is organised into 8 sections, each targeting a distinct part of the system:
+
+| Section | Tests | What is verified |
+|---|---|---|
+| **Schedule Generation** | 9 | Empty plans, budget fitting, fixed tasks always scheduled, overload warning, urgency boost ordering, clinical dependency order, reasoning recorded for every task |
+| **Recurring Task Activation** | 14 | All 4 frequency modes (`daily`, `weekly`, `biweekly`, `every_n_days`), correct day-on / day-off behaviour, `days_of_week=None`, biweekly day 0/7/14 arithmetic, future `start_date` guard, `Pet.get_tasks_today` integration |
+| **Conflict Detection** | 8 | True overlaps flagged, back-to-back tasks are NOT flagged, zero/single fixed task edge cases, partial overlaps, 3-way conflict pairs, conflicts surfaced on `DailyPlan` |
+| **Task Completion & Recurrence** | 6 | Daily task creates next-day task, weekly task creates next-week task, one-off task spawns nothing, invalid ID returns `None`, next task inherits all properties |
+| **Sorting & Time-Slot Assignment** | 8 | Chronological sort correctness, single flexible task placed at `day_start`, flexible task moved past fixed slot, two adjacent fixed slots handled by the while-changed loop, `buffer_minutes=0` back-to-back, exact buffer gap, custom `day_start` |
+| **Urgency Scoring** | 6 | Keyword match returns `+2`, no match returns `0`, `None` pet, case-insensitivity, partial substring match (`"arthrit"` → `"arthritis"`), cross-type isolation |
+| **Task Filters** | 6 | Filter by pet, type, completed status, pending status, high priority, low priority |
+| **DailyPlan Utilities** | 7 | Time remaining, `all_done` states (incomplete / complete / empty), `get_reason` for known and unknown IDs, `completion_count` |
+
+### Confidence Level
+
+**4 / 5 stars**
+
+The core scheduling pipeline — priority sorting, urgency boosting, dependency ordering, conflict detection, time-slot assignment, and recurring task date arithmetic — is fully tested with deterministic inputs (fixed reference date `2026-03-30`) so results never vary between runs. All 67 tests pass. One star is held back because the Streamlit UI layer (`app.py`) and session-state persistence are not covered by automated tests; those flows currently require manual verification in the browser.
+
+---
+
 ### Suggested workflow
 
 1. Read the scenario carefully and identify requirements and edge cases.
