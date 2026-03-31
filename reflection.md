@@ -210,8 +210,15 @@ Two bottlenecks were found when reviewing the class skeleton before implementing
 
 **a. Constraints and priorities**
 
-- What constraints does your scheduler consider (for example: time, priority, preferences)?
-- How did you decide which constraints mattered most?
+The scheduler considers three types of constraints, layered in a deliberate order.
+
+The first and most important constraint is **time**. The owner tells the app how many minutes they have available today, and every scheduling decision flows from that number. Fixed-time tasks always get included regardless of the budget — if a dog needs insulin at 8 AM, that is non-negotiable. After fixed tasks are placed, the remaining minutes become the budget for everything else.
+
+The second constraint is **priority**. Flexible tasks are sorted high → medium → low before being fitted into the remaining time. Within the same priority level, a second sort by urgency score runs first — if a pet has a health condition that matches a task's type (like a diabetic cat whose medication tasks get a +2 boost), those tasks float above everything else at the same priority level. Within the same priority and urgency, tasks are also ordered by clinical dependency: medication must come before feeding, feeding before walks, and so on.
+
+The third constraint is **owner preferences**. If the owner says "I prefer walks in the morning," the scheduler pins morning tasks to an 08:00 time slot before running the greedy fit. Preferences are softer than the other two constraints — they shape the order, not whether a task fits.
+
+I decided on this layering because time is truly the hard wall: no algorithm can create time that does not exist. Priority determines what gets cut when time runs short. Preferences are the final polish — they personalize the plan without overriding the more critical constraints.
 
 **b. Tradeoffs**
 
@@ -227,29 +234,54 @@ This tradeoff is reasonable for a pet care app for two reasons. First, a typical
 
 ## 3. AI Collaboration
 
-**a. How you used AI**
+**a. How I used AI**
 
-- How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
-- What kinds of prompts or questions were most helpful?
+I used VS Code Copilot as my AI agent throughout this project, and its role shifted depending on which phase I was in.
+
+In the **design phase**, I used VS Code Copilot as a brainstorming partner. I described the scenario in plain English — "a pet owner needs to schedule care tasks across multiple pets within a time budget" — and asked it to help me think through what objects I needed. It helped me spot that a `Preference` object made more sense than a plain string, and that `DailyPlan` should be a separate output artifact rather than just a list. That conversation shaped the initial UML.
+
+In the **implementation phase**, I used VS Code Copilot to write first drafts of methods after I had already decided what each method should do. I found the most effective pattern was to write the method signature and docstring myself, then ask Copilot to fill in the body. This kept me in control of the design while letting Copilot handle the mechanical parts of the code.
+
+In the **algorithmic upgrade phase**, I described each algorithm in plain terms — for example, "check every pair of fixed-time tasks and flag any whose time windows overlap" — and asked VS Code Copilot as my AI agent to translate that into Python. The pairwise interval check `(a_start < b_end AND b_start < a_end)` came out of exactly that kind of back-and-forth.
+
+In the **debugging phase**, I used VS Code Copilot most for error messages I did not immediately recognise. Pasting a traceback and asking "why would this happen?" consistently pointed me to the right file and line faster than reading docs.
+
+The prompts that worked best were always specific and scoped. "Write a method that filters a list of Task objects by pet name" got a clean answer. "Help me with my scheduler" got something vague. The more precisely I described what I already knew I wanted, the more useful the output.
 
 **b. Judgment and verification**
 
-- Describe one moment where you did not accept an AI suggestion as-is.
-- How did you evaluate or verify what the AI suggested?
+One clear moment where I did not accept a VS Code Copilot suggestion as-is was during the time-slot assignment logic. When I asked it to write `_assign_times()`, VS Code Copilot generated a version that used a single pass through the occupied time slots to check for conflicts with the cursor. At first glance it looked correct — it found an overlapping slot and moved the cursor past it. But I noticed that if two fixed-task blocks were adjacent, a single pass would only move the cursor past the first block and then stop checking, potentially landing the flexible task inside the second block.
+
+I tested this by hand: if fixed tasks occupied 09:00–09:30 and 09:30–10:00, and the cursor landed at 09:35 after the first check, the single-pass version would not catch that 09:35 is still inside the second block. I replaced the single pass with a `while changed` loop that re-scans all occupied slots after every cursor move. This made the logic correct regardless of how many adjacent fixed slots existed.
+
+I verified the fix by writing test cases specifically for adjacent fixed blocks and running them in pytest. Having tests meant I could change the implementation confidently and know immediately whether the fix held.
 
 ---
 
 ## 4. Testing and Verification
 
-**a. What you tested**
+**a. What I tested**
 
-- What behaviors did you test?
-- Why were these tests important?
+I focused my tests on the behaviors that could silently produce a wrong answer without crashing — the kind of bugs that are hardest to catch by just clicking through the app.
+
+The most important tests were for the **scheduling pipeline** itself: does an empty task list produce an empty plan? Does the scheduler correctly skip a task that is over budget? Does a fixed-time task always appear in the schedule even if it alone would exceed the budget? These tests matter because the scheduler is the core of the whole app — if it silently drops a task or places it at the wrong time, the owner gets a plan they cannot trust.
+
+The second priority was **recurring task arithmetic**. Getting the date math right for biweekly and every-N-days recurrence is easy to get almost-right in a way that breaks on specific day combinations. I fixed a reference date (`2026-03-30`, a Monday) so that all date-based tests are deterministic — they give the same result every time regardless of when you run them.
+
+**Conflict detection** needed its own tests because the off-by-one boundary is subtle: two tasks that are back-to-back but not overlapping (one ends at 09:30, the next starts at 09:30) should NOT be flagged as a conflict. A naive `<=` comparison instead of `<` would get this wrong.
+
+**Urgency scoring** tests were important because the keyword matching is case-insensitive and substring-based — `"arthrit"` should match a pet whose special need is `"arthritis"`. Without tests it would be easy to break this with a small refactor.
 
 **b. Confidence**
 
-- How confident are you that your scheduler works correctly?
-- What edge cases would you test next if you had more time?
+I am confident the core scheduling logic is correct. All 67 tests pass, they use fixed inputs so they are not random, and they cover the edge cases I can think of.
+
+What I am less confident about is the Streamlit layer. Session state, form submission order, and how Streamlit reruns the whole script on every interaction are all things that are hard to test automatically. A user could submit forms in an unexpected order, or refresh the page mid-session, and something might break that the tests would never catch.
+
+If I had more time, the edge cases I would test next are:
+- What happens when the owner's `day_start` time is later than a fixed task's scheduled time — does the flexible cursor end up placed before or after that fixed task correctly?
+- What happens when two recurring tasks from different pets both happen to be active today and both want the same time slot?
+- What happens if `available_minutes` is 0 — does the plan gracefully produce an empty scheduled list without crashing?
 
 ---
 
@@ -257,12 +289,18 @@ This tradeoff is reasonable for a pet care app for two reasons. First, a typical
 
 **a. What went well**
 
-- What part of this project are you most satisfied with?
+The part I am most satisfied with is the scheduling pipeline in `Scheduler.generate_plan()`. It went through several iterations — first it was just a greedy fit, then urgency scoring was added, then dependency ordering, then the configurable time-slot assignment — and each addition plugged in cleanly without breaking what was already there. The fact that I could add seven algorithms one at a time and have the tests keep passing throughout gave me real confidence that the design was solid. That would not have been possible if the Scheduler had been tightly coupled to the UI instead of being a standalone class that takes an Owner and returns a DailyPlan.
 
-**b. What you would improve**
+I am also happy with how the `TaskFilter` class turned out. Making it a pure utility class with only static methods meant it had no state to manage and no dependencies to worry about. It is the simplest class in the project and because of that it is the one I would trust most.
 
-- If you had another iteration, what would you improve or redesign?
+**b. What I would improve**
+
+If I had another iteration, the first thing I would redesign is the Streamlit session state handling. Right now the app stores the `Owner` object in `st.session_state` and mutates it in place as the user adds pets and tasks. This works, but it means there is no undo, no way to clear a single pet without losing everything, and no persistence between browser sessions. I would replace this with a proper data layer — even just a JSON file on disk — so that a user's pets and tasks survive a page refresh.
+
+The second thing I would improve is the `_build_reasoning()` method. Right now it produces short strings like "Included: high priority, fixed at 09:00." That is accurate but not very informative for a real user. I would make it generate a more natural sentence — something like "Bella's insulin injection is scheduled first because it is a fixed medical appointment and her diabetic condition makes it the highest-urgency task today."
 
 **c. Key takeaway**
 
-- What is one important thing you learned about designing systems or working with AI on this project?
+The most important thing I learned is that working with a powerful AI like VS Code Copilot as my AI agent is less about getting code written and more about staying clear on what you are actually trying to build. VS Code Copilot as my AI agent is fast and helpful but it will happily suggest a solution to a problem you did not have, or implement something that technically works but does not fit your design. Every time I let VS Code Copilot write something without having a specific intention already in mind, I ended up with code I had to explain to myself before I could use it — which is the opposite of clean design.
+
+The sessions that went best were the ones where I had already decided what a class or method should do, and I was using VS Code Copilot as my AI agent to save typing. The sessions that created extra work were the ones where I asked a vague question and just ran with the first answer. The lead architect role is not about writing every line yourself — it is about knowing the shape of what you are building clearly enough that you can evaluate every suggestion against it and say yes or no with a reason.
