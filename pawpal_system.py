@@ -261,6 +261,32 @@ class DailyPlan:
         return "\n".join(lines)
 
 
+class TaskFilter:
+    """Static utility methods for filtering a flat list of Task objects."""
+
+    @staticmethod
+    def by_pet(tasks, pet_name):
+        """Return only tasks belonging to the named pet (case-insensitive)."""
+        name_lower = pet_name.lower()
+        return [t for t in tasks if t.pet_name and t.pet_name.lower() == name_lower]
+
+    @staticmethod
+    def by_status(tasks, completed):
+        """Return completed tasks if completed=True, pending tasks if completed=False."""
+        return [t for t in tasks if t.is_completed == completed]
+
+    @staticmethod
+    def by_type(tasks, task_type):
+        """Return only tasks whose task_type matches (case-insensitive)."""
+        type_lower = task_type.lower()
+        return [t for t in tasks if t.task_type.lower() == type_lower]
+
+    @staticmethod
+    def by_priority(tasks, priority):
+        """Return only tasks whose priority matches (case-insensitive)."""
+        return [t for t in tasks if t.priority.lower() == priority.lower()]
+
+
 class Scheduler:
     def __init__(self, owner):
         """Create a Scheduler tied to the given Owner."""
@@ -329,6 +355,14 @@ class Scheduler:
                 reason += f", preference: {prefs[0].description}"
             return reason
         return f"Skipped: not enough time remaining (needs {task.duration_minutes} min)"
+
+    def sort_by_time(self, tasks):
+        """Sort a list of tasks by scheduled_time (HH:MM); tasks with no time go last."""
+        def time_key(t):
+            if t.scheduled_time is None:
+                return "99:99"  # pushes timeless tasks to the end
+            return t.scheduled_time  # "HH:MM" strings sort correctly as plain strings
+        return sorted(tasks, key=lambda t: time_key(t))
 
     def _assign_times(self, tasks):
         """Assign sequential start times to tasks that don't already have one."""
