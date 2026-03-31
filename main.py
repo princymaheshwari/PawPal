@@ -225,3 +225,59 @@ assert bella.tasks[-1].next_due_date == expected or bella.tasks[-1].is_completed
 print()
 print(f"  Next occurrence scheduled for: {bella.tasks[-1].next_due_date}")
 print(f"  (today={today_date} + 1 day = {expected})")
+
+# -----------------------------------------------------------------------
+# DEMO 8: Conflict detection
+# Add two tasks that intentionally overlap in time and verify the
+# Scheduler catches it and prints a warning instead of crashing.
+# -----------------------------------------------------------------------
+print()
+print("=" * 55)
+print("DEMO 8: Conflict detection")
+print("=" * 55)
+
+conflict_owner = Owner(name="Jordan", available_minutes=120)
+conflict_pet = Pet(name="Mochi", species="dog", age=3)
+
+# Task A: 09:00, runs 30 min -> occupies 09:00-09:30
+conflict_pet.add_task(Task(
+    title="Morning Walk",
+    task_type="walk",
+    duration_minutes=30,
+    priority="high",
+    scheduled_time="09:00",
+    pet_name="Mochi",
+))
+# Task B: 09:15, runs 20 min -> occupies 09:15-09:35  (overlaps Task A)
+conflict_pet.add_task(Task(
+    title="Grooming Session",
+    task_type="grooming",
+    duration_minutes=20,
+    priority="medium",
+    scheduled_time="09:15",
+    pet_name="Mochi",
+))
+# Task C: 10:00, runs 10 min -> no overlap, should be clean
+conflict_pet.add_task(Task(
+    title="Feeding",
+    task_type="feeding",
+    duration_minutes=10,
+    priority="high",
+    scheduled_time="10:00",
+    pet_name="Mochi",
+))
+
+conflict_owner.add_pet(conflict_pet)
+conflict_scheduler = Scheduler(conflict_owner)
+conflict_plan = conflict_scheduler.generate_plan(today)
+
+if conflict_plan.conflicts:
+    print(f"  {len(conflict_plan.conflicts)} conflict(s) found:")
+    for msg in conflict_plan.conflicts:
+        print(f"  [!] {msg}")
+else:
+    print("  No conflicts detected.")
+
+print()
+print("Full plan output (conflicts appear at top):")
+print(conflict_plan.summary())

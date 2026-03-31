@@ -244,6 +244,7 @@ class DailyPlan:
         self.total_duration_minutes = 0
         self.available_minutes = available_minutes
         self.reasoning = {}
+        self.conflicts = []     # populated by Scheduler.detect_conflicts()
         self.generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     def add_scheduled_task(self, task, reason):
@@ -282,6 +283,11 @@ class DailyPlan:
             f"Budget: {self.available_minutes} min | Used: {self.total_duration_minutes} min | Remaining: {self.time_remaining()} min",
             "",
         ]
+        if self.conflicts:
+            lines.append("*** CONFLICTS DETECTED ***")
+            for msg in self.conflicts:
+                lines.append(f"  [!] {msg}")
+            lines.append("")
         if self.scheduled_tasks:
             lines.append("Scheduled:")
             for task in self.scheduled_tasks:
@@ -334,6 +340,7 @@ class Scheduler:
         plan = DailyPlan(self.owner.available_minutes)
         tasks = self._collect_tasks(day_of_week)
         fixed, flexible = self._separate_fixed(tasks)
+        plan.conflicts = self.detect_conflicts(fixed)   # check before scheduling
         flexible = self._sort_flexible(flexible)
         flexible = self._apply_preferences(flexible)
         scheduled, skipped = self._fit_tasks(fixed, flexible, self.owner.available_minutes)
@@ -343,6 +350,43 @@ class Scheduler:
         for task in skipped:
             plan.add_skipped_task(task, self._build_reasoning(task, included=False))
         return plan
+
+    def detect_conflicts(self, fixed_tasks):
+        """Return a list of warning strings for any overlapping fixed-time tasks.
+
+        Two tasks conflict when their time windows overlap:
+          task A runs from a_start to a_end,
+          task B runs from b_start to b_end,
+          they overlap if a_start < b_end AND b_start < a_end.
+        Returns an empty list if there are no conflicts -- never raises an exception.
+        """
+        if len(fixed_tasks) < 2:
+            return []
+
+        # Parse each fixed task into (start_min, end_min, task)
+        intervals = []
+        for task in fixed_tasks:
+            try:
+                h, m = map(int, task.scheduled_time.split(":"))
+                start = h * 60 + m
+                intervals.append((start, start + task.duration_minutes, task))
+            except (ValueError, AttributeError):
+                continue  # skip tasks with malformed times rather than crashing
+
+        warnings = []
+        # Pairwise check -- O(n^2), fine for the small number of daily tasks
+        for i in range(len(intervals)):
+            for j in range(i + 1, len(intervals)):
+                a_start, a_end, a_task = intervals[i]
+                b_start, b_end, b_task = intervals[j]
+                if a_start < b_end and b_start < a_end:
+                    warnings.append(
+                        f"'{a_task.title}' ({a_task.pet_name}, {a_task.scheduled_time}, "
+                        f"{a_task.duration_minutes} min) overlaps "
+                        f"'{b_task.title}' ({b_task.pet_name}, {b_task.scheduled_time}, "
+                        f"{b_task.duration_minutes} min)"
+                    )
+        return warnings
 
     def _collect_tasks(self, day_of_week):
         """Retrieve all tasks for today from the owner's pets."""
